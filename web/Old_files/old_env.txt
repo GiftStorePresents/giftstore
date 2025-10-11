@@ -1,0 +1,48 @@
+# ======================
+# USTAWIENIA GLOBALNE
+# ======================
+
+# Nazwa sklepu (SEO, tytuły stron)
+REACT_APP_STORE_NAME=Gift Store
+
+# URL lokalny (dev)
+REACT_APP_BASE_URL=http://localhost:3000
+
+# Adres produkcyjny sklepu (SEO, udostępnianie)
+REACT_APP_SITE_URL=https://twoja-domena.pl
+
+# Domyślny język interfejsu
+REACT_APP_DEFAULT_LANG=pl
+
+# ======================
+# API / BACKEND
+# ======================
+
+# URL API (jeżeli dodasz backend)
+REACT_APP_API_URL=http://localhost:4000
+
+# ======================
+# ANALITYKA I TRACKING
+# ======================
+
+# Google Analytics Measurement ID (GA4) – format G-XXXXXXXXXX
+VITE_GA_MEASUREMENT_ID=G-XXXXXXXXXX  
+# REACT_APP_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+
+# Facebook Pixel ID (opcjonalnie)
+REACT_APP_FB_PIXEL_ID=
+
+# ======================
+# TRYB ROZWOJU / PRODUKCJI
+# ======================
+
+# development | production
+REACT_APP_ENVIRONMENT=development
+
+ESLINT_NO_DEV_ERRORS=true
+
+
+
+VITE_SITE_URL=http://localhost:3000
+# VITE_GA_MEASUREMENT_ID=
+

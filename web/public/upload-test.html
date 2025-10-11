@@ -1,0 +1,39 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Upload test</title>
+<body style="font-family:system-ui; max-width:720px; margin:40px auto">
+  <h1>Upload test</h1>
+  <p>Wpisz <b>productId</b>, wybierz obrazek i wyślij.</p>
+  <label>Product ID: <input id="pid" style="width:420px"></label>
+  <br><br>
+  <input id="file" type="file" accept="image/*">
+  <button id="go">Wyślij</button>
+  <pre id="out" style="background:#111;color:#0f0;padding:12px;white-space:pre-wrap;"></pre>
+
+<script>
+const API_BASE = 'http://localhost:4000';
+function getCookie(name){
+  const m = document.cookie.match(new RegExp('(?:^|; )'+name.replace(/([.*+?^${}()|[\]\\])/g,'\\$1')+'=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+document.getElementById('go').onclick = async () => {
+  const pid = document.getElementById('pid').value.trim();
+  const file = document.getElementById('file').files[0];
+  const out = document.getElementById('out');
+  out.textContent = '';
+  if(!pid) return out.textContent = 'Podaj productId.';
+  if(!file) return out.textContent = 'Wybierz plik.';
+  if(!file.type.startsWith('image/')) return out.textContent = 'To nie jest obrazek.';
+  if(file.size > 10*1024*1024) return out.textContent = 'Za duży (>10MB).';
+
+  const csrf = getCookie('csrf') || getCookie('XSRF-TOKEN');
+  const fd = new FormData(); fd.append('file', file);
+  const url = `${API_BASE}/api/admin/products/${encodeURIComponent(pid)}/upload-image`;
+  try{
+    const res = await fetch(url, { method:'POST', credentials:'include', headers: { 'X-CSRF-Token': csrf }, body: fd });
+    const txt = await res.text();
+    out.textContent = `HTTP ${res.status} ${res.statusText}\n` + txt;
+  }catch(e){ out.textContent = 'Network error: ' + e.message; }
+};
+</script>
+</body>

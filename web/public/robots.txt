@@ -1,0 +1,8 @@
+# robots.txt — Gift Store
+# Zezwalamy na indeksację całej witryny
+
+User-agent: *
+Allow: /
+
+# Uaktualnij na swoją domenę produkcyjną:
+Sitemap: https://twoja-domena.pl/sitemap.xml

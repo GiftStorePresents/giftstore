@@ -1,0 +1,600 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * =========================
+ * ADMIN AUDIT LOGS
+ * =========================
+ */
+model AdminAction {
+  id      String @id @default(cuid())
+  actorId String
+  actor   User   @relation("AdminActionsByActor", fields: [actorId], references: [id])
+
+  /// Np. "USER_SET_ROLE" | "USER_SOFT_BAN" | "PRODUCT_CREATE" | "PRODUCT_UPDATE" | "PRODUCT_SOFT_DELETE" | "VARIANT_PRICE_CHANGE"
+  action     String
+  /// "User" | "Product" | "Variant" | "Article" (przykładowo)
+  entityType String
+  entityId   String
+
+  before Json?
+  after  Json?
+  meta   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("admin_actions")
+}
+
+/**
+ * =========================
+ * UŻYTKOWNIK
+ * =========================
+ */
+model User {
+  id         String    @id @default(cuid())
+  email      String    @unique
+  name       String?
+  password   String?
+  // ✔ Konto zweryfikowane, gdy data jest ustawiona (null = niezweryfikowane)
+  verifiedAt DateTime?
+
+  // Brute-force / sesje
+  loginFailCount    Int       @default(0)
+  loginBlockedUntil DateTime?
+  tokenVersion      Int       @default(0)
+
+  // Logowanie zewnętrzne
+  googleId  String? @unique
+  avatarUrl String?
+
+  // Role
+  role Role @default(USER)
+
+  // 2FA / SMS
+  phone           String?   @unique
+  phoneVerifiedAt DateTime?
+  mfaEnabled      Boolean   @default(false)
+
+  // SOFT BAN
+  disabledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacje domenowe
+  carts     Cart[]
+  orders    Order[]
+  wishlists Wishlist[]
+
+  // Blog (autor artykułów)
+  articles Article[] @relation("ArticleAuthor")
+
+  // Relacje do tokenów
+  passwordResetTokens PasswordResetToken[]
+  accounts            OAuthAccount[]
+  emailChangeTokens   EmailChangeToken[] // back-relacja do EmailChangeToken.user
+  smsCodes            SmsCode[] // back-relacja do SmsCode.user
+
+  // Sesje refresh
+  sessions Session[]
+
+  // Logi admina (jako aktor)
+  adminActions AdminAction[] @relation("AdminActionsByActor")
+
+  @@map("users")
+}
+
+/**
+ * =========================
+ * SESJE (refresh tokens)
+ * =========================
+ */
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/**
+ * =========================
+ * KODY WERYFIKACYJNE E-MAIL (6 cyfr)
+ * =========================
+ */
+model EmailVerificationCode {
+  id        String    @id @default(cuid())
+  email     String
+  code      String // 6-cyfrowy kod (string, z wiodącymi zerami)
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int       @default(0) // licznik błędnych prób
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([email, usedAt, expiresAt, createdAt])
+  @@map("email_verification_codes")
+}
+
+/**
+ * =========================
+ * PRODUKTY / WARIANTY / MEDIA
+ * =========================
+ */
+model Product {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String
+  brand       String?
+  category    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // SOFT DELETE
+  deletedAt DateTime?
+
+  featured Boolean @default(false)
+
+  media         Media[]
+  variants      Variant[]
+  wishlistItems WishlistItem[]
+
+  @@map("products")
+}
+
+model Variant {
+  id          String  @id @default(cuid())
+  productId   String
+  sku         String  @unique
+  color       String?
+  size        String?
+  personalize Boolean @default(false)
+  priceCents  Int
+  stock       Int     @default(0)
+
+  cartItems CartItem[]
+  Product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Historia cen
+  priceHistory VariantPriceHistory[]
+
+  @@index([productId])
+  @@map("variants")
+}
+
+model VariantPriceHistory {
+  id        String   @id @default(cuid())
+  variantId String
+  variant   Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  oldPrice  Int
+  newPrice  Int
+  changedBy String // userId (admin)
+  createdAt DateTime @default(now())
+
+  @@index([variantId, createdAt])
+  @@map("variant_price_history")
+}
+
+model Media {
+  id        String    @id @default(cuid())
+  productId String
+  url       String
+  kind      MediaType
+  position  Int       @default(0)
+
+  Product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("media")
+}
+
+/**
+ * =========================
+ * KOSZYK
+ * =========================
+ */
+model Cart {
+  id        String   @id @default(cuid())
+  userId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User?      @relation(fields: [userId], references: [id])
+  items CartItem[]
+
+  @@index([userId])
+  @@map("carts")
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  variantId String
+  qty       Int    @default(1)
+
+  Cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  Variant Variant @relation(fields: [variantId], references: [id])
+
+  // jeden wariant może występować w danym koszyku tylko raz
+  @@unique([cartId, variantId])
+  @@index([variantId])
+  @@map("cart_items")
+}
+
+/**
+ * =========================
+ * LISTY ŻYCZEŃ
+ * =========================
+ */
+model Wishlist {
+  id     String @id @default(cuid())
+  userId String
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items WishlistItem[]
+
+  @@index([userId])
+  @@map("wishlists")
+}
+
+model WishlistItem {
+  id         String @id @default(cuid())
+  wishlistId String
+  productId  String
+
+  Product  Product  @relation(fields: [productId], references: [id])
+  Wishlist Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+
+  // brak duplikatów tego samego produktu w jednej liście
+  @@unique([wishlistId, productId])
+  @@index([productId])
+  @@map("wishlist_items")
+}
+
+/**
+ * =========================
+ * ZAMÓWIENIA
+ * =========================
+ */
+model Order {
+  id     String @id @default(cuid())
+  number String @unique // np. 2025/000123
+
+  // Klient może być gościem — userId opcjonalne
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+
+  status OrderStatus @default(PENDING)
+
+  // sumy w groszach
+  subtotalCents         Int
+  taxCents              Int @default(0)
+  shippingCents         Int @default(0)
+  discountCents         Int @default(0) // snapshot rabatu
+  paymentSurchargeCents Int @default(0) // dopłata za płatność
+  totalCents            Int
+
+  // wysyłka / kontakt
+  shippingName    String
+  shippingPhone   String?
+  shippingEmail   String?
+  shippingAddr1   String
+  shippingAddr2   String?
+  shippingCity    String
+  shippingZip     String
+  shippingCountry String  @default("PL")
+
+  // kupon
+  couponCode String?
+
+  // ----- FAKTURY -----
+  /// czy klient poprosił o fakturę przy zamówieniu (checkbox w checkout)
+  invoiceRequested   Boolean @default(false)
+  /// dane nabywcy do faktury
+  invoiceCompanyName String?
+  invoiceNip         String?
+  invoiceAddr1       String?
+  invoiceCity        String?
+  invoiceZip         String?
+  invoiceCountry     String? // np. "PL"
+  invoiceEmail       String? // adres do wysyłki faktury (opcjonalnie)
+
+  /// metadane wystawionej faktury
+  invoiceIssuedAt DateTime?
+  invoiceNumber   String?   @unique
+  invoicePdfPath  String?
+
+  // inne
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items OrderItem[]
+
+  // ⬇ zwrotna relacja do CouponRedemption (naprawa relacji)
+  couponRedemptions CouponRedemption[] @relation("OrderCouponRedemptions")
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([invoiceRequested])
+  @@index([invoiceIssuedAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  productId String?
+  variantId String?
+
+  // denormalizacja na moment zakupu (SNAPSHOT)
+  name       String
+  sku        String?
+  category   String? // snapshot kategorii produktu
+  qty        Int     @default(1)
+  priceCents Int // cena jednostkowa w groszach
+  color      String?
+  size       String?
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+/**
+ * =========================
+ * RESET HASŁA
+ * =========================
+ */
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+/**
+ * =========================
+ * MAGIC LINK
+ * =========================
+ */
+model MagicLinkToken {
+  id        String    @id @default(cuid())
+  email     String
+  token     String    @unique
+  purpose   String    @default("login") // np. login, verify
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([email, expiresAt, usedAt])
+  @@map("magic_link_tokens")
+}
+
+/**
+ * =========================
+ * OAUTH
+ * =========================
+ */
+model OAuthAccount {
+  id         String @id @default(cuid())
+  provider   String
+  providerId String
+
+  accessToken  String?
+  refreshToken String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, providerId])
+  @@map("oauth_accounts")
+}
+
+/**
+ * =========================
+ * ZMIANA E-MAILA (2-etapowo)
+ * =========================
+ */
+model EmailChangeToken {
+  id        String    @id @default(cuid())
+  userId    String
+  newEmail  String
+  token     String    @unique
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([newEmail])
+  @@map("email_change_tokens")
+}
+
+/**
+ * =========================
+ * 2FA / SMS – kody jednorazowe
+ * =========================
+ */
+model SmsCode {
+  id        String    @id @default(cuid())
+  userId    String
+  phone     String
+  code      String // 6 cyfr
+  purpose   String // "verify_phone" | "mfa_login"
+  attempts  Int       @default(0)
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([phone])
+  @@index([purpose, createdAt])
+  @@map("sms_codes")
+}
+
+/**
+ * =========================
+ * BLOG – artykuły
+ * =========================
+ */
+model Article {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  excerpt     String?
+  content     String // Markdown lub HTML
+  image       String?
+  tags        Json? // ["prezenty","dla-niej"]
+  published   Boolean   @default(false)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Autor (opcjonalnie)
+  authorId String?
+  author   User?   @relation("ArticleAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([published, publishedAt])
+  @@index([updatedAt])
+  @@map("articles")
+}
+
+/**
+ * =========================
+ * NEWSLETTER (SMTP + double opt-in)
+ * =========================
+ */
+model NewsletterSubscriber {
+  id               String           @id @default(cuid())
+  email            String           @unique
+  status           NewsletterStatus @default(PENDING)
+  confirmToken     String?          @unique
+  unsubscribeToken String?          @unique
+  ip               String?
+  userAgent        String?
+  source           String?
+  createdAt        DateTime         @default(now())
+  confirmedAt      DateTime?
+  unsubscribedAt   DateTime?
+
+  @@index([status, createdAt])
+  @@map("newsletter_subscribers")
+}
+
+/**
+ * =========================
+ * KUPONY (procent/kwota + limity)
+ * =========================
+ */
+model Coupon {
+  id           String     @id @default(cuid())
+  code         String     @unique
+  type         CouponType
+  amount       Int? // dla FIXED, w groszach
+  percentage   Float? // dla PERCENT, np. 10 = 10%
+  validFrom    DateTime?
+  validTo      DateTime?
+  usageLimit   Int?
+  usedCount    Int        @default(0)
+  perUserLimit Int?
+  minOrder     Int? // minimalna wartość koszyka (grosze)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  redemptions CouponRedemption[]
+
+  @@index([active, validTo])
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id       String   @id @default(cuid())
+  couponId String
+  userId   String?
+  orderId  String?
+  usedAt   DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  // nazwana relacja do Order (spójna z polem w Order)
+  order  Order? @relation("OrderCouponRedemptions", fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([couponId, usedAt])
+  @@index([userId])
+  @@index([orderId])
+  @@map("coupon_redemptions")
+}
+
+/**
+ * =========================
+ * ENUMY
+ * =========================
+ */
+enum MediaType {
+  image
+  video
+  spin360
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PREPARING
+  PACKING
+  READY_TO_SHIP
+  SHIPPED
+  FULFILLED
+  CANCELLED
+  REFUNDED
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum NewsletterStatus {
+  PENDING
+  SUBSCRIBED
+  UNSUBSCRIBED
+}
+
+enum CouponType {
+  PERCENT
+  FIXED
+}

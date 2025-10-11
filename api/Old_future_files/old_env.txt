@@ -1,0 +1,44 @@
+#PORT=4000
+#DATABASE_URL="postgresql://postgres:5757*(fHFJH8909g353535353535@localhost:5432/giftstore?schema=public"
+#JWT_SECRET="super_long_secret"
+#CORS_ORIGIN="http://localhost:3000"  # adres Twojego frontendu
+
+# haslo: 5757*(fHFJH8909g353535353535
+DATABASE_URL=postgresql://postgres:5757%2A%28fHFJH8909g353535353535@localhost:5432/giftstore
+PORT=4000
+CORS_ORIGIN=http://localhost:3000
+JWT_SECRET=ghfgkjJIKJFf78898dJUIFIJikjfjkoioi*(&890
+JWT_EXPIRES=7d
+
+SITE_URL=http://localhost:3000
+
+SMTP_HOST=sandbox.smtp.mailtrap.io     # albo inne SMTP (Gmail, Brevo, Resend, Elastic…)
+SMTP_PORT=2525                  # Mailtrap: 2525; Gmail: 465/587
+SMTP_USER=96d400f4b34ee3
+SMTP_PASS=6bac05050a921c
+MAIL_FROM="Gift Store" <no-reply@giftstore.local>
+
+GOOGLE_CLIENT_ID=329703945273-6hjk3f3rbmdl1niojhrtvnqgvlk200g8.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=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
+GOOGLE_CALLBACK_URL=http://localhost:4000/api/auth/google/callback
+SITE_URL=http://localhost:3000
+
+# dev (rozne originy -> potrzebujemy SameSite=None)
+COOKIE_SAMESITE=none
+COOKIE_SECURE=false
+
+# prod (ten sam origin lub reverse proxy https)
+# COOKIE_SAMESITE=lax
+# COOKIE_SECURE=false
+
+VITE_SITE_URL=http://localhost:3000
+VITE_API_URL=http://localhost:4000
+# API_URL=http://localhost:4000
+# SITE_URL=http://localhost:3000
+
+APPLE_CLIENT_ID=com.twoja.domena.web   # Services ID
+APPLE_TEAM_ID=XXXXXXXXXX               # z Apple Developer
+APPLE_KEY_ID=YYYYYYYYYY                # z Apple Developer (Key)
+APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMI...==\n-----END PRIVATE KEY-----"
+
+

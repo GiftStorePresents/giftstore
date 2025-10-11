@@ -1,0 +1,12 @@
+packages:
+  - api
+  - web
+
+ignoredBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - bcrypt
+  - core-js
+  - core-js-pure
+  - esbuild
+  - prisma

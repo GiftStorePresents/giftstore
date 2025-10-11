@@ -1,0 +1,107 @@
+# ==== Server ====
+PORT=4000
+NODE_ENV=development
+
+# ==== Database (PostgreSQL) ====
+# haslo: 5757*(fHFJH8909g353535353535
+DATABASE_URL=postgresql://postgres:5757%2A%28fHFJH8909g353535353535@localhost:5432/giftstore
+# Jeśli używasz niestandardowego schematu, dodaj na końcu: ?schema=public
+
+# ==== JWT ====
+JWT_SECRET=ghfgkjJIKJFf78898dJUIFIJikjfjkoioi*(&890
+JWT_EXPIRES=7d
+
+# ==== Frontend / CORS (DEV) ====
+SITE_URL=http://localhost:3000
+CORS_ORIGIN=http://localhost:3000
+
+# ==== Cookies (DEV: localhost ↔ localhost:4000) ====
+COOKIE_SAMESITE=lax
+COOKIE_SECURE=false
+
+# ==== SMTP (Mailtrap przykładowo) ====
+SMTP_HOST=sandbox.smtp.mailtrap.io
+SMTP_PORT=2525
+SMTP_USER=96d400f4b34ee3
+SMTP_PASS=6bac05050a921c
+MAIL_FROM="Gift Store" <no-reply@giftstore.local>
+
+# ==== Google OAuth ====
+GOOGLE_CLIENT_ID=329703945273-6hjk3f3rbmdl1niojhrtvnqgvlk200g8.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=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
+GOOGLE_CALLBACK_URL=http://localhost:4000/api/auth/google/callback
+
+
+# =======================
+# PROD – SAME ORIGIN @ http://localhost:4000
+# (Frontend i API pod tym samym adresem/portem)
+# Odkomentuj poniższe 4 linie na prodzie-JEDNOHOSTOWYM:
+# =======================
+# SITE_URL=http://localhost:4000
+# CORS_ORIGIN=http://localhost:4000
+# COOKIE_SAMESITE=lax
+# COOKIE_SECURE=false
+
+
+# =======================
+# PROD – HTTPS DOMENA (opcjonalny szablon)
+# (gdy masz prawdziwą domenę i SSL)
+# =======================
+# SITE_URL=https://twojadomena.pl
+# CORS_ORIGIN=https://twojadomena.pl
+# COOKIE_SAMESITE=none
+# COOKIE_SECURE=true
+
+Świetne pytanie 🙂
+Krótko: **te wpisy w `.env` są po to, żeby przeglądarka przyjęła i wysyłała cookie z JWT oraz żeby backend poprawnie robił redirecty i CORS.** Bez nich kończysz 401/“Set-Cookie blocked”.
+
+## Po co każdy z nich?
+
+* **SITE\_URL** – adres frontu do redirectów (np. po logowaniu/magic linku) i do budowania linków w mailach.
+* **CORS\_ORIGIN** – mówi backendowi „z jakiego originu pozwalam na fetch z ciasteczkami”.
+* **COOKIE\_SAMESITE / COOKIE\_SECURE** – *twarde* zasady przeglądarki:
+
+  * `SameSite=Lax` (DEV) – działa, gdy front i API są „ten sam site” (np. oba `localhost`), nawet jeśli porty różne.
+  * `SameSite=None` **musi** iść z `Secure=true` (HTTPS). Potrzebne, gdy front i API to **różne „site”** (np. `app.com` i `api.inna-domena.com`).
+* **GOOGLE\_CALLBACK\_URL** – musi 1:1 zgadzać się z tym, co wpiszesz w Google Cloud, inaczej OAuth nie wróci.
+
+## Kiedy którego używać?
+
+* **DEV (to co masz teraz):**
+
+  * `SITE_URL=http://localhost:3000`
+  * `CORS_ORIGIN=http://localhost:3000`
+  * `COOKIE_SAMESITE=lax`, `COOKIE_SECURE=false`
+    To pozwala na login z frontu na 3000 i API na 4000 bez blokady ciasteczek.
+
+* **„PROD – same origin” (np. wszystko pod `http://localhost:4000` albo na jednej domenie bez HTTPS):**
+
+  * `SITE_URL=http://localhost:4000`
+  * `CORS_ORIGIN=http://localhost:4000`
+  * `COOKIE_SAMESITE=lax`, `COOKIE_SECURE=false`
+    Zaleta: zero CORS-ów, prościej z cookie.
+
+* **PROD z HTTPS (prawdziwa domena):**
+
+  * `SITE_URL=https://twojadomena.pl`
+  * `CORS_ORIGIN=https://twojadomena.pl`
+  * `COOKIE_SAMESITE=none`, `COOKIE_SECURE=true`
+    Wymóg przeglądarek: `None` tylko z `Secure`. Daje pełną kompatybilność, także gdy kiedyś rozdzielisz front i API na różne subdomeny.
+
+## Czy musisz „PROD – same origin @ :4000”?
+
+Nie teraz. To **szablon** na sytuację, gdy chcesz serwować front i API spod **tego samego** adresu. W dev trzymasz obecne ustawienia. Przełączysz się dopiero, gdy:
+
+* będziesz budował front i serwował go z tego samego serwera co API, albo
+* chcesz poćwiczyć scenariusz „jedno-originowe” prod.
+
+## TL;DR
+
+Używasz tych wpisów, żeby:
+
+* przeglądarka **nie blokowała** `Set-Cookie` (SameSite/Secure),
+* backend **wpuszczał** Twój front (CORS),
+* redirecty i linki z maili trafiały **pod właściwy adres** (SITE\_URL),
+* OAuth Google **wracał** w dobre miejsce (GOOGLE\_CALLBACK\_URL).
+
+Jeśli zostajesz na dev (`3000 ↔ 4000`) — nic więcej nie zmieniasz. Gdy kiedyś spinasz wszystko pod `http://localhost:4000`, odkomentujesz blok „same origin” i tyle.

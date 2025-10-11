@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- PWA -->
+    <meta name="theme-color" content="#FFD700" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- iOS -->
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Gift Store" />
+
+    <!-- Favicons -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/logo32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+
+    <!-- Preconnecty / DNS Prefetch -->
+    <!-- Fonts (opcjonalnie — zostawione, bo zwykle się przydają) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+
+    <!-- InPost (SDK ładowany dynamicznie w React; tylko to zostaje) -->
+    <link rel="preconnect" href="https://geowidget.easypack24.net" crossorigin />
+    <link rel="dns-prefetch" href="https://geowidget.easypack24.net" />
+
+    <!-- Stripe (jeśli używasz płatności online) -->
+    <link rel="preconnect" href="https://js.stripe.com" crossorigin />
+    <link rel="dns-prefetch" href="https://js.stripe.com" />
+
+    <!-- Sitemap -->
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+
+    <!-- SEO -->
+    <title>Gift Store – Wyjątkowe prezenty na każdą okazję</title>
+    <meta
+      name="description"
+      content="Gift Store – najlepsze pomysły na prezenty dla niej, dla niego, dla dzieci i na każdą okazję."
+    />
+    <link rel="canonical" href="https://twoja-domena.pl/" />
+    <meta name="robots" content="index,follow" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pl_PL" />
+    <meta property="og:site_name" content="Gift Store" />
+    <meta property="og:title" content="Gift Store – Wyjątkowe prezenty" />
+    <meta
+      property="og:description"
+      content="Znajdź idealny prezent na każdą okazję! Dla niej, dla niego, dla dzieci i więcej."
+    />
+    <meta property="og:image" content="/og-image.jpg" />
+    <meta property="og:url" content="https://twoja-domena.pl/" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Gift Store – Wyjątkowe prezenty" />
+    <meta
+      name="twitter:description"
+      content="Znajdź idealny prezent na każdą okazję! Dla niej, dla niego, dla dzieci i więcej."
+    />
+    <meta name="twitter:image" content="/og-image.jpg" />
+
+    <!-- Uwaga: NIE ładujemy tutaj Leaflet/OSM/Nominatim — usunięte.
+         InPost SDK i tak jest dogrywany dynamicznie w React. -->
+    <!-- Jeśli chcesz fonty Google:
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+    -->
+  </head>
+
+  <body>
+    <noscript>Musisz włączyć JavaScript, aby korzystać z tej aplikacji.</noscript>
+    <div id="root"></div>
+
+    <!-- Vite entry -->
+    <script type="module" src="/src/main.jsx"></script>
+
+    <!-- Minimalny fix Z-Index dla modala InPost (na wszelki wypadek) -->
+    <style>
+      .easypack-modal { z-index: 2147483000 !important; position: fixed !important; }
+    </style>
+  </body>
+</html>

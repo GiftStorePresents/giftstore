@@ -1,0 +1,565 @@
+/* =========================
+   TWÓJ ORYGINALNY STYL (NIERUSZANY)
+   ========================= */
+body,
+#root {
+  min-height: 100vh;
+  background: linear-gradient(120deg, #fffbe8 0%, #ffe9e3 100%);
+  position: relative;
+  overflow-x: hidden;
+}
+
+.bg-gift-decor {
+  background:
+    linear-gradient(120deg, #fffbe8 0%, #ffe9e3 100%),
+    url("https://www.transparenttextures.com/patterns/diamond-upholstery.png"),
+    radial-gradient(ellipse at 80% 10%, #ffd70038 0%, transparent 70%),
+    radial-gradient(ellipse at 10% 85%, #ffd70020 0%, transparent 80%);
+  background-blend-mode: soft-light, multiply, normal;
+  background-size: cover;
+  min-height: 100vh;
+}
+
+.glass {
+  background: rgba(255,255,255,0.65);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.18);
+  backdrop-filter: blur(14px) saturate(1.22);
+  border-radius: 1.5rem;
+  border: 1.5px solid rgba(255,215,0,0.13);
+  transition: box-shadow .3s, background .3s;
+}
+
+@keyframes fadeInGlass {
+  from { opacity: 0; transform: translateY(16px) scale(.96); filter: blur(10px); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);   filter: blur(0); }
+}
+.fade-in-glass { animation: fadeInGlass 0.68s cubic-bezier(.36,1.2,.58,1) both; }
+
+/* =========================================================
+   LIGHT – utility (uzupełnienia pod Tailwinda / kolory projektu)
+   ========================================================= */
+
+:root {
+  --mainRed: #d7263d;
+  --gold: #ffd700;
+  --gold-600: #e6c200;
+  --bgUltraLight: #fffdf5;
+
+  /* Search (light) – klasyczny */
+  --search-bg: #ffffff;
+  --search-border: #ffd44a;
+  --search-placeholder: #c2c6d0;
+  --search-text: #1b1f2a;
+
+  --search-cap-bg: #0e1324;       /* ciemny „kapsel” po prawej */
+  --search-cap-icon: #d7263d;     /* ikona (czerw.) */
+  --search-cap-icon-hover: #ff3d58;
+
+  --search-shadow: 0 8px 20px rgba(0,0,0,.08);
+}
+
+.text-mainRed { color: var(--mainRed); }
+.bg-mainRed { background-color: var(--mainRed); }
+.border-mainRed { border-color: var(--mainRed); }
+
+.text-gold { color: var(--gold); }
+.bg-gold { background-color: var(--gold); }
+.border-gold { border-color: var(--gold); }
+
+.text-muted { color: #6b7280; }
+.bg-bgUltraLight { background-color: var(--bgUltraLight); }
+
+.shadow-gold { box-shadow: 0 8px 24px rgba(255,215,0,.22), 0 2px 10px rgba(215,38,61,.08); }
+.card-shadow { box-shadow: 0 12px 34px rgba(0,0,0,.08); }
+
+.bg-mesh-gift {
+  background:
+    radial-gradient(circle at 18% 12%, #fff5c266 0%, transparent 60%),
+    radial-gradient(circle at 86% 82%, rgba(215,38,61,.09) 0%, transparent 70%),
+    url("https://www.transparenttextures.com/patterns/noise.png");
+  background-blend-mode: screen, multiply, soft-light;
+}
+
+.bg-mesh-gift-dark-pretty {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255,214,102,.14) 0%, transparent 60%),
+    radial-gradient(circle at 86% 82%, rgba(32,216,171,.12) 0%, transparent 70%),
+    linear-gradient(120deg, #0b1020 0%, #111a2e 50%, #1a1030 100%),
+    url("https://www.transparenttextures.com/patterns/noise.png");
+  background-blend-mode: screen, screen, normal, multiply;
+}
+
+.surface { background: #ffffff; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px);} to{opacity:1;transform:none;} }
+.animate-fadeIn { animation: fadeIn .18s ease-out both; }
+
+/* =========================================================
+   DARK — AURORA NEBULA
+   ========================================================= */
+
+:root[data-theme="dark"] {
+  --bg-start: #0b1020;
+  --bg-mid:   #111a2e;
+  --bg-end:   #1a1030;
+
+  --surface:  #0f1424;
+  --card-bg:  rgba(18,22,35,.78);
+
+  --text:     #eaf1ff;
+  --muted:    #a9b6d4;
+
+  --accent:   #ffd166;
+  --accent-2: #7aa2ff;
+  --accent-3: #20d8ab;
+
+  --link:       #cdd9ff;
+  --link-hover: #ffffff;
+
+  --border:   rgba(122,162,255,.28);
+  --shadow:   rgba(0,0,0,.28);
+  --shadow-strong: rgba(0,0,0,.55);
+
+  --pattern-url: url("https://www.transparenttextures.com/patterns/noise.png");
+
+  /* Search (dark) – klasyczny */
+  --search-bg: #0c1326;              /* ciemny granat */
+  --search-border: #ffd166;          /* złota rama */
+  --search-placeholder: rgba(231,233,255,.75);
+  --search-text: #eaf1ff;
+
+  --search-cap-bg: #0a0f1f;
+  --search-cap-icon: #ffd166;        /* złota lupa */
+  --search-cap-icon-hover: #ffe08b;
+
+  --search-shadow: 0 10px 26px rgba(0,0,0,.45);
+}
+
+/* 2) Tło (dark) */
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] #root,
+html.dark body,
+html.dark #root {
+  color: var(--text);
+  background:
+    radial-gradient(1200px 600px at 85% 15%, rgba(32,216,171,.22), transparent 60%),
+    radial-gradient(900px 520px at 12% 85%, rgba(122,162,255,.22), transparent 64%),
+    radial-gradient(700px 420px at 70% 75%, rgba(255,209,102,.16), transparent 68%),
+    linear-gradient(120deg, var(--bg-start) 0%, var(--bg-mid) 45%, var(--bg-end) 100%),
+    var(--pattern-url),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0, rgba(255,255,255,.03) 1px, transparent 1px, transparent 26px);
+  background-blend-mode: screen, screen, screen, normal, multiply, soft-light;
+  background-size: cover, cover, cover, cover, auto, auto;
+}
+
+/* 4) Linki/focus */
+:root[data-theme="dark"] a, html.dark a { color: var(--link); }
+:root[data-theme="dark"] a:hover, html.dark a:hover { color: var(--link-hover); text-decoration: underline; }
+:root[data-theme="dark"] a:focus-visible,
+:root[data-theme="dark"] button:focus-visible,
+html.dark a:focus-visible,
+html.dark button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 5) Scrollbar */
+:root[data-theme="dark"] *::-webkit-scrollbar, html.dark *::-webkit-scrollbar { height:10px; width:10px; }
+:root[data-theme="dark"] *::-webkit-scrollbar-track, html.dark *::-webkit-scrollbar-track { background:#0e1426; }
+:root[data-theme="dark"] *::-webkit-scrollbar-thumb, html.dark *::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #7aa2ff, #20d8ab); border-radius:999px;
+}
+
+/* 6) Szkło/powierzchnie */
+:root[data-theme="dark"] .glass, html.dark .glass {
+  background: linear-gradient(180deg, rgba(122,162,255,.06), rgba(32,216,171,.06)), var(--card-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 14px 46px var(--shadow-strong);
+  backdrop-filter: blur(14px) saturate(1.06);
+  -webkit-backdrop-filter: blur(14px) saturate(1.06);
+}
+:root[data-theme="dark"] .surface, :root[data-theme="dark"] .card,
+html.dark .surface, html.dark .card {
+  background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,0)), var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px var(--shadow);
+  color: var(--text);
+}
+
+/* 7) Nagłówki/teksty */
+:root[data-theme="dark"] h1, :root[data-theme="dark"] h2, :root[data-theme="dark"] h3, :root[data-theme="dark"] .heading,
+html.dark h1, html.dark h2, html.dark h3, html.dark .heading { color: var(--text); text-shadow: 0 1px 2px rgba(0,0,0,.25); }
+:root[data-theme="dark"] .text-muted, html.dark .text-muted { color: var(--muted); }
+
+/* 8) Tabele */
+:root[data-theme="dark"] table, html.dark table { color: var(--text); border-collapse: separate; border-spacing: 0; }
+:root[data-theme="dark"] thead th, html.dark thead th { background: rgba(122,162,255,.12); color:#f4f7ff; font-weight:600; }
+:root[data-theme="dark"] tbody tr, html.dark tbody tr { background: rgba(255,255,255,.035); border-bottom:1px solid rgba(122,162,255,.22); }
+:root[data-theme="dark"] tbody tr:hover, html.dark tbody tr:hover { background: rgba(255,255,255,.07); }
+
+/* 9) Przyciski */
+:root[data-theme="dark"] .btn, :root[data-theme="dark"] .btn-primary, :root[data-theme="dark"] .btn-ghost,
+html.dark .btn, html.dark .btn-primary, html.dark .btn-ghost {
+  display:inline-flex; align-items:center; gap:.5rem; border-radius:12px; font-weight:600; line-height:1;
+  transition: transform .15s ease, filter .2s ease, border-color .2s;
+}
+:root[data-theme="dark"] .btn, html.dark .btn {
+  background: linear-gradient(135deg, rgba(122,162,255,.12), rgba(32,216,171,.12));
+  color: var(--text); border: 1px solid var(--border);
+}
+:root[data-theme="dark"] .btn-primary, html.dark .btn-primary {
+  background: linear-gradient(135deg, var(--accent) 0%, #ffb703 100%);
+  color:#15192b; border:1px solid rgba(255,214,102,.45);
+}
+:root[data-theme="dark"] .btn-ghost, html.dark .btn-ghost { background:transparent; color:var(--link); border:1px solid transparent; }
+:root[data-theme="dark"] .btn:hover, :root[data-theme="dark"] .btn-primary:hover,
+html.dark .btn:hover, html.dark .btn-primary:hover { filter:brightness(1.06); transform:translateY(-1px); }
+
+/* 10) Formularze */
+:root[data-theme="dark"] input[type="text"],
+:root[data-theme="dark"] input[type="email"],
+:root[data-theme="dark"] input[type="password"],
+:root[data-theme="dark"] input[type="number"],
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select,
+html.dark input[type="text"],
+html.dark input[type="email"],
+html.dark input[type="password"],
+html.dark input[type="number"],
+html.dark textarea,
+html.dark select {
+  background: rgba(255,255,255,.055);
+  color: var(--text);
+  border: 1px solid rgba(122,162,255,.35);
+  border-radius: 12px;
+  padding: .6rem .8rem;
+}
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] textarea::placeholder,
+html.dark input::placeholder,
+html.dark textarea::placeholder { color: rgba(231,233,255,.65); }
+:root[data-theme="dark"] input:focus,
+:root[data-theme="dark"] textarea:focus,
+:root[data-theme="dark"] select:focus,
+html.dark input:focus,
+html.dark textarea:focus,
+html.dark select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(255,214,102,.22);
+  outline: none;
+}
+
+/* 11) Kompat z jasnymi klasami (OGRN. DO #root – nie ruszamy zewn. widgetów) */
+:root[data-theme="dark"] #root [class*="bg-white"],
+html.dark #root [class*="bg-white"] { background-color: var(--surface) !important; }
+:root[data-theme="dark"] #root [class*="text-black"],
+:root[data-theme="dark"] #root [class*="text-gray-900"],
+:root[data-theme="dark"] #root [class*="text-gray-800"],
+:root[data-theme="dark"] #root [class*="text-slate-900"],
+:root[data-theme="dark"] #root [class*="text-neutral-900"],
+html.dark #root [class*="text-black"],
+html.dark #root [class*="text-gray-900"],
+html.dark #root [class*="text-gray-800"],
+html.dark #root [class*="text-slate-900"],
+html.dark #root [class*="text-neutral-900"] { color: var(--text) !important; }
+:root[data-theme="dark"] #root [class*="border-gray"],
+:root[data-theme="dark"] #root [class*="border-neutral-2"],
+html.dark #root [class*="border-gray"],
+html.dark #root [class*="border-neutral-2"] { border-color: var(--border) !important; }
+:root[data-theme="dark"] #root [class*="text-gray-600"],
+:root[data-theme="dark"] #root [class*="text-neutral-600"],
+html.dark #root [class*="text-gray-600"],
+html.dark #root [class*="text-neutral-600"] { color: var(--muted) !important; }
+
+/* =========================================================
+   DARK compat — białe wstawki (OGRN. DO #root)
+   ========================================================= */
+:root[data-theme="dark"], html.dark { --panel: color-mix(in oklab, var(--surface) 88%, #fff 0%); }
+:root[data-theme="dark"] #root .panel, :root[data-theme="dark"] #root .box, :root[data-theme="dark"] #root .well,
+:root[data-theme="dark"] #root .modal, :root[data-theme="dark"] #root .dropdown-menu, :root[data-theme="dark"] #root .popover,
+:root[data-theme="dark"] #root .tooltip-inner, :root[data-theme="dark"] #root .menu, :root[data-theme="dark"] #root .tabs,
+:root[data-theme="dark"] #root .tab-panel, :root[data-theme="dark"] #root .callout,
+:root[data-theme="dark"] #root .alert:not(.alert-error):not(.alert-success),
+:root[data-theme="dark"] #root .container-white, :root[data-theme="dark"] #root .box-white,
+html.dark #root .panel, html.dark #root .box, html.dark #root .well, html.dark #root .modal, html.dark #root .dropdown-menu, html.dark #root .popover,
+html.dark #root .tooltip-inner, html.dark #root .menu, html.dark #root .tabs, html.dark #root .tab-panel, html.dark #root .callout,
+html.dark #root .alert:not(.alert-error):not(.alert-success), html.dark #root .container-white, html.dark #root .box-white {
+  background: var(--panel) !important; color: var(--text) !important; border-color: var(--border) !important;
+  box-shadow: 0 10px 30px var(--shadow);
+}
+:root[data-theme="dark"] #root [class~="bg-gray-50"], :root[data-theme="dark"] #root [class~="bg-slate-50"],
+html.dark #root [class~="bg-gray-50"], html.dark #root [class~="bg-slate-50"] { background-color: var(--panel) !important; }
+:root[data-theme="dark"] #root [class*="border-gray-1"], :root[data-theme="dark"] #root [class*="border-gray-2"],
+:root[data-theme="dark"] #root [class*="border-slate-2"], :root[data-theme="dark"] #root hr,
+html.dark #root [class*="border-gray-1"], html.dark #root [class*="border-gray-2"],
+html.dark #root [class*="border-slate-2"], html.dark #root hr { border-color: var(--border) !important; }
+:root[data-theme="dark"] #root [style*="background:#fff"],
+:root[data-theme="dark"] #root [style*="background: #fff"],
+:root[data-theme="dark"] #root [style*="background-color:#fff"],
+:root[data-theme="dark"] #root [style*="background-color: #fff"],
+html.dark #root [style*="background:#fff"],
+html.dark #root [style*="background: #fff"],
+html.dark #root [style*="background-color:#fff"],
+html.dark #root [style*="background-color: #fff"] { background-color: var(--panel) !important; color: var(--text) !important; }
+
+/* Buttons fallback & danger (OGRN. DO #root) */
+:root[data-theme="dark"] #root [class*="button"], :root[data-theme="dark"] #root .btn-default, :root[data-theme="dark"] #root .btn-secondary,
+html.dark #root [class*="button"], html.dark #root .btn-default, html.dark #root .btn-secondary {
+  background: linear-gradient(135deg, rgba(122,162,255,.12), rgba(32,216,171,.12)) !important;
+  color: var(--text) !important; border: 1px solid var(--border) !important;
+}
+:root[data-theme="dark"] #root .btn-danger, :root[data-theme="dark"] #root .btn-delete, :root[data-theme="dark"] #root .btn-error, :root[data-theme="dark"] #root .danger,
+html.dark #root .btn-danger, html.dark #root .btn-delete, html.dark #root .btn-error, html.dark #root .danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important; color:#fff !important; border-color: rgba(239,68,68,.6) !important;
+}
+
+/* =========================
+   SEARCHBAR — CLASSIC (stary design)
+   ========================= */
+
+.header-search { width: 100%; max-width: 780px; }
+
+.searchbar,
+.search,
+.search-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--search-bg);
+  border: 2px solid var(--search-border);
+  border-radius: 14px;
+  box-shadow: var(--search-shadow);
+  padding: 6px;
+  width: 100%;
+}
+
+/* Pole tekstowe */
+.searchbar input,
+.search input[type="text"],
+.search-input,
+.header-search input {
+  flex: 1 1 auto;
+  background: transparent;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  padding: .70rem .9rem;
+  border-radius: 10px;
+  color: var(--search-text);
+  font-size: .95rem;
+}
+.searchbar input::placeholder,
+.search input::placeholder,
+.search-input::placeholder,
+.header-search input::placeholder {
+  color: var(--search-placeholder);
+}
+
+/* Prawy „kapsel” z lupą */
+.searchbar .search-btn,
+.searchbar button[type="submit"],
+.search button[type="submit"],
+.btn-search {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 40px;
+  padding: 0 .9rem;
+  margin-left: .3rem;
+  background: var(--search-cap-bg);
+  color: var(--search-cap-icon);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform .12s ease, filter .2s ease, color .2s ease, background .2s ease, border-color .2s ease;
+}
+.searchbar .search-btn:hover,
+.searchbar button[type="submit"]:hover,
+.search button[type="submit"]:hover,
+.btn-search:hover {
+  color: var(--search-cap-icon-hover);
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+.searchbar .search-btn:active,
+.searchbar button[type="submit"]:active,
+.search button[type="submit"]:active,
+.btn-search:active { transform: translateY(0); }
+
+.searchbar:focus-within,
+.search:focus-within,
+.search-input-wrapper:focus-within {
+  border-color: var(--search-border);
+  box-shadow: 0 0 0 3px rgba(255,214,102,.18), var(--search-shadow);
+}
+
+.header-search input,
+.header-search .search-input { border: 0 !important; box-shadow: none !important; outline: none !important; }
+.header-search input:focus,
+.header-search .search-input:focus { border: 0 !important; box-shadow: none !important; outline: none !important; }
+
+@media (max-width: 480px) {
+  .searchbar, .search, .search-input-wrapper { border-radius: 12px; padding: 5px; }
+  .searchbar .search-btn, .btn-search { min-height: 38px; min-width: 42px; padding: 0 .75rem; }
+}
+
+/* =========================
+   HERO — LIGHT & DARK
+   ========================= */
+
+.hero-banner .hero-title,
+.hero-banner .hero-subtitle { color: #fff !important; }
+
+:root[data-theme="dark"] .hero-banner,
+html.dark .hero-banner {
+  background: none !important;
+  background:
+    radial-gradient(1100px 560px at 82% 18%, rgba(32,216,171,.18), transparent 62%),
+    radial-gradient(900px 520px at 14% 86%, rgba(157,124,255,.18), transparent 64%),
+    radial-gradient(720px 440px at 76% 72%, rgba(255,209,102,.12), transparent 68%),
+    linear-gradient(135deg, #5c0b24 0%, #3a0f22 48%, #1b1028 100%),
+    var(--pattern-url);
+  background-blend-mode: screen, screen, screen, normal, multiply;
+  color: var(--text);
+  border: 1px solid color-mix(in oklab, #b83280 45%, #7aa2ff 20%, #000 35%);
+  border-radius: 28px;
+  box-shadow: 0 22px 55px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.03);
+  position: relative;
+  overflow: hidden;
+}
+:root[data-theme="dark"] .hero-overlay, html.dark .hero-overlay { display: none !important; }
+:root[data-theme="dark"] .hero-banner .hero-photo, html.dark .hero-banner .hero-photo {
+  filter: brightness(.68) saturate(.98) contrast(1.02);
+}
+:root[data-theme="dark"] .hero-banner::before,
+:root[data-theme="dark"] .hero-banner::after,
+html.dark .hero-banner::before,
+html.dark .hero-banner::after {
+  content: ""; position: absolute; inset: -12%; pointer-events: none;
+}
+:root[data-theme="dark"] .hero-banner::before, html.dark .hero-banner::before {
+  background: radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0,0,0,.22) 100%); mix-blend-mode: multiply;
+}
+:root[data-theme="dark"] .hero-banner::after, html.dark .hero-banner::after {
+  background:
+    radial-gradient(900px 240px at 50% 35%, rgba(186,26,88,.22), transparent 70%),
+    radial-gradient(700px 220px at 52% 65%, rgba(32,216,171,.12), transparent 70%);
+  mix-blend-mode: screen; opacity: .85;
+}
+:root[data-theme="dark"] .hero-banner .hero-title, html.dark .hero-banner .hero-title {
+  color: #ffffff; text-shadow: 0 2px 14px rgba(0,0,0,.35);
+}
+:root[data-theme="dark"] .hero-banner .hero-subtitle, html.dark .hero-banner .hero-subtitle {
+  color: rgba(234,241,255,.92);
+}
+:root[data-theme="dark"] .hero-banner .hero-cta, html.dark .hero-banner .hero-cta {
+  background: linear-gradient(135deg, var(--accent) 0%, #ffb703 100%) !important;
+  color: #1b1330 !important;
+  border: 1px solid rgba(255,214,102,.45);
+  box-shadow: 0 10px 30px rgba(255,214,102,.18);
+  transition: transform .15s ease, filter .2s ease;
+}
+:root[data-theme="dark"] .hero-banner .hero-cta:hover, html.dark .hero-banner .hero-cta:hover {
+  filter: brightness(1.06); transform: translateY(-1px);
+}
+
+/* --- HERO overlay toggles --- */
+.hero-overlay-light { display: block; }
+.hero-overlay-dark  { display: none; }
+:root[data-theme="dark"] .hero-overlay-light, html.dark .hero-overlay-light { display: none !important; }
+:root[data-theme="dark"] .hero-overlay-dark,  html.dark .hero-overlay-dark  { display: block !important; }
+
+/* =========================
+   Drobne ulepszenia
+   ========================= */
+
+.glass:hover {
+  box-shadow: 0 10px 40px rgba(31,38,135,0.28);
+  background: color-mix(in oklab, var(--surface) 85%, #fff 15%);
+}
+
+/* ---------- THEME SWITCH ANIMATIONS ---------- */
+.theme-switching * {
+  transition:
+    color .35s ease,
+    background-color .35s ease,
+    border-color .35s ease,
+    fill .35s ease,
+    stroke .35s ease,
+    box-shadow .35s ease,
+    filter .35s ease;
+}
+.theme-burst {
+  position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+  background:
+    radial-gradient(1200px 600px at var(--burst-x,50%) var(--burst-y,50%), rgba(186,26,88,.25), transparent 60%),
+    radial-gradient(900px 480px at calc(var(--burst-x,50%) - 12%) calc(var(--burst-y,50%) + 10%), rgba(255,214,102,.18), transparent 65%),
+    radial-gradient(700px 360px at calc(var(--burst-x,50%) + 16%) calc(var(--burst-y,50%) - 12%), rgba(32,216,171,.16), transparent 70%);
+  opacity: 0; animation: themeBurst 560ms cubic-bezier(.36,1.2,.58,1) forwards;
+}
+@keyframes themeBurst {
+  0% { opacity:0; filter:blur(16px);} 30% {opacity:.75; filter:blur(8px);} 100% {opacity:0; filter:blur(22px);}
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-in-glass, .glass, * { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+  .theme-switching * { transition:none !important; }
+  .theme-burst { animation:none !important; opacity:0 !important; }
+}
+
+/* =========================
+   Swiper – drobne poprawki
+   ========================= */
+:root[data-theme="dark"] .swiper-pagination-bullet, html.dark .swiper-pagination-bullet { background: rgba(234,241,255,.6); }
+:root[data-theme="dark"] .swiper-pagination-bullet-active, html.dark .swiper-pagination-bullet-active {
+  background: var(--accent); box-shadow: 0 0 0 4px rgba(255,214,102,.18);
+}
+:root[data-theme="dark"] .swiper-button-next, :root[data-theme="dark"] .swiper-button-prev,
+html.dark .swiper-button-next, html.dark .swiper-button-prev {
+  color: var(--accent); filter: drop-shadow(0 4px 16px rgba(0,0,0,.45));
+}
+
+/* =========================
+   CategoryTiles – overlay krawędzie
+   ========================= */
+.category-tile,
+.category-tile > .overlay,
+.category-tile > .overlay-dark {
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+/* =========================================================
+   InPost Geowidget — minimalny, bezpieczny set (NIE ruszamy headera/lupy)
+   ========================================================= */
+
+/* Modal ponad overlayami aplikacji */
+.easypack-modal {
+  z-index: 2147483000 !important;
+  position: fixed !important;
+}
+
+/* Leaflet — bez blendów/filtrów, żeby mapa była czytelna */
+.easypack-modal .leaflet-container,
+.easypack-modal .leaflet-pane {
+  filter: none !important;
+  mix-blend-mode: normal !important;
+}
+
+/* Wnętrze widżetu zawsze „light”, niezależnie od motywu strony */
+.easypack-modal,
+.easypack-widget,
+.easypack-container,
+.easypack-widget * {
+  color-scheme: light !important;
+}
+
+/* Neutralizacja resetu Tailwinda tylko w InPost (gdyby preflight psuł wygląd) */
+.easypack-widget input,
+.easypack-widget button,
+.easypack-widget select,
+.easypack-widget textarea {
+  all: revert;
+}
+
+/* Uwaga:
+   - ŻADNYCH reguł typu .easypack-widget .widget__header … ani
+     .easypack-widget .search__button::before/::after – to zostawiamy widżetowi.
+   - Dzięki temu lupa i pasek wyszukiwania działają normalnie. */
