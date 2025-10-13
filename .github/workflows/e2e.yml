@@ -1,3 +1,4 @@
+# .github/workflows/e2e.yml
 name: E2E
 
 on:
@@ -5,6 +6,10 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   cypress:
@@ -32,13 +37,16 @@ jobs:
           node-version: 20
           cache: 'pnpm'
 
+      - run: corepack enable
+
       - uses: pnpm/action-setup@v4
         with:
           version: 9
+          run_install: false
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Create api/.env (local DB)
+      - name: Create api/.env (local Postgres in CI)
         run: |
           mkdir -p api
           {
@@ -57,14 +65,12 @@ jobs:
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
           } > api/.env
 
-      - name: Migrate + Seed
+      - name: Prisma migrate
         working-directory: api
-        run: |
-          pnpm prisma:migrate
-          pnpm db:seed || true
+        run: pnpm prisma:migrate
 
-      - name: Build web & api
-        run: pnpm -r build
+      - name: Build web
+        run: pnpm --filter web build
 
       - name: Start API
         working-directory: api
@@ -74,13 +80,10 @@ jobs:
         working-directory: web
         run: pnpm preview --port 3000 &
 
-      - name: Wait on services
-        uses: jakejarvis/wait-action@v0.1.1
-        with:
-          urls: http://localhost:3000,http://localhost:4000/api/health
-          timeout: 60
-
       - name: Cypress run
         uses: cypress-io/github-action@v6
         with:
-          wait-on: 'http://localhost:3000'
+          wait-on: 'http://localhost:3000, http://localhost:4000/api/health'
+          wait-on-timeout: 120000
+        env:
+          CYPRESS_BASE_URL: http://localhost:3000
