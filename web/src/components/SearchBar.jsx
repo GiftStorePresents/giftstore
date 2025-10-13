@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FaSearch } from "react-icons/fa";
 import Fuse from "fuse.js";
-import products from "../../../giftstore-api/src/seed/popularGiftsData.ts"; // ten sam folder
+//import products from "../../../api/src/seed/popularGiftsData.ts"; // ten sam folder
+import products from "@data/popularGiftsData";
 
 // Normalizacja PL znaków do wyszukiwania (nie do renderu!)
 function normalize(str = "") {

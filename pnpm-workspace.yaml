@@ -1,6 +1,6 @@
 packages:
-  - api
-  - web
+  - "web"
+  - "api"
 
 ignoredBuiltDependencies:
   - '@prisma/client'

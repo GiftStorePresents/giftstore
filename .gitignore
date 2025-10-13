@@ -49,3 +49,6 @@ prisma/migrations/**/README.md
 .cache
 .eslintcache
 .stylelintcache
+
+# --- generated code (do not commit) ---
+api/src/generated

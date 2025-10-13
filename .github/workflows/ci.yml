@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        ports: [ "5432:5432" ]
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: giftstore
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install deps (monorepo)
+        run: pnpm install --frozen-lockfile
+
+      - name: Create api/.env for CI (local Postgres)
+        run: |
+          mkdir -p api
+          {
+            echo "NODE_ENV=test"
+            echo "PORT=4000"
+            echo "SITE_URL=${{ secrets.SITE_URL || 'http://localhost:3000' }}"
+            echo "API_URL=http://localhost:4000"
+            echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/giftstore?schema=public"
+            echo "JWT_SECRET=${{ secrets.JWT_SECRET || 'dummy' }}"
+            echo "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY || 'dummy' }}"
+            echo "STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET || 'dummy' }}"
+            echo "SMTP_HOST=${{ secrets.SMTP_HOST || 'localhost' }}"
+            echo "SMTP_PORT=${{ secrets.SMTP_PORT || '587' }}"
+            echo "SMTP_USER=${{ secrets.SMTP_USER || 'dummy' }}"
+            echo "SMTP_PASS=${{ secrets.SMTP_PASS || 'dummy' }}"
+            echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL || 'https://example.com/webhook' }}"
+          } > api/.env
+
+      - name: Prisma migrate
+        working-directory: api
+        run: pnpm prisma:migrate
+
+      - name: Seed DB (optional)
+        if: ${{ false }}
+        working-directory: api
+        run: pnpm db:seed
+
+      - name: Build all
+        run: pnpm -r build
+
+      - name: Run tests
+        run: pnpm -r test --if-present

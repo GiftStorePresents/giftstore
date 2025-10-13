@@ -1,8 +1,7 @@
-// src/server.ts
+// api/src/server.ts
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import helmet from "helmet";
@@ -13,14 +12,16 @@ import pinoHttp from "pino-http";
 import { nanoid } from "nanoid";
 import cron from "node-cron";
 import { prisma } from "./lib/prisma";
-import blog from "./routes/blog";
-import { randomBytes } from "node:crypto";
+
+// --- Konfiguracja środowiska (nasza warstwa) ---
+import { env } from "./config/env";
 
 // -------- Routers (public) --------
 import { products } from "./routes/products";
 import { cart } from "./routes/cart";
 import wishlist from "./routes/wishlist";
 import coupons from "./routes/coupons"; // POST /api/coupons/validate
+import blog from "./routes/blog";
 
 // -------- Auth --------
 import { auth } from "./routes/auth";
@@ -65,31 +66,31 @@ import { getProductRows, getCategoryRows, getArticleRows } from "./services/site
 import { readPrismaSeedFile, parseSeedCoupons } from "./utils/seedCoupons";
 import { ensureCoupon } from "./utils/ensureCoupon";
 
-dotenv.config();
-
+// ---------------------------------------------------------------------
+// Inicjalizacja aplikacji
+// ---------------------------------------------------------------------
 const app = express();
+
+// ufamy proxy (X-Forwarded-*) – potrzebne do poprawnego IP/CORS za reverse proxy
 app.set("trust proxy", 1);
 app.set("etag", false);
 
-/* =========================================================================
- *  Security headers
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// Security headers
+// ---------------------------------------------------------------------
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    // Własny CSP ustawiamy niżej jako header (tu wyłączamy domyślne).
+    // CSP ustawiamy niżej ręcznie nagłówkiem
     contentSecurityPolicy: false,
   })
 );
 
-// --- Content-Security-Policy (pełna kontrola) ---
+// --- Content-Security-Policy (kontrola ręczna) ---
 app.use((req, res, next) => {
-  const isDev = process.env.NODE_ENV !== "production";
-
-  // connect-src: w dev dodajemy ws: (Vite HMR)
   const connectSrc = [
     "'self'",
-    isDev ? "ws:" : null,
+    env.IS_PROD ? null : "ws:", // Vite HMR w dev
     "https://geowidget.easypack24.net",
     "https://nominatim.openstreetmap.org",
   ]
@@ -106,12 +107,11 @@ app.use((req, res, next) => {
   next();
 });
 
-/* =========================================================================
- *  CORS
- * ========================================================================= */
-const ENV_SITE_URL = (process.env.SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
+// ---------------------------------------------------------------------
+// CORS
+// ---------------------------------------------------------------------
 const allowedOrigins = new Set<string>([
-  ENV_SITE_URL,
+  env.SITE_URL.replace(/\/+$/, ""),
   "http://localhost:3000",
   "http://127.0.0.1:3000",
   "http://localhost:5173",
@@ -142,16 +142,16 @@ const corsConfig: cors.CorsOptions = {
 app.use(cors(corsConfig));
 app.options("*", cors(corsConfig));
 
-/* =========================================================================
- *  Logger
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// Logger
+// ---------------------------------------------------------------------
 const logger =
-  process.env.NODE_ENV !== "production"
-    ? pino({
+  env.IS_PROD
+    ? pino({ level: process.env.LOG_LEVEL || "info" })
+    : pino({
         level: process.env.LOG_LEVEL || "info",
         transport: { target: "pino-pretty", options: { translateTime: "SYS:standard" } },
-      })
-    : pino({ level: process.env.LOG_LEVEL || "info" });
+      });
 
 app.use(
   pinoHttp({
@@ -179,9 +179,9 @@ app.use(
   })
 );
 
-/* =========================================================================
- *  /uploads (static)
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// Statyki /uploads i /public
+// ---------------------------------------------------------------------
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -200,9 +200,6 @@ app.use(
   express.static(uploadsDir)
 );
 
-/* =========================================================================
- *  public/ (static)
- * ========================================================================= */
 const publicDir = path.join(process.cwd(), "public");
 if (fs.existsSync(publicDir)) {
   app.use(
@@ -219,9 +216,9 @@ if (fs.existsSync(publicDir)) {
   );
 }
 
-/* =========================================================================
- *  Anti-cache for /api
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// Anti-cache dla /api
+// ---------------------------------------------------------------------
 app.use("/api", (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
@@ -229,25 +226,25 @@ app.use("/api", (_req, res, next) => {
   next();
 });
 
-/**
- * Stripe webhook – RAW body (before json parsers)
- */
+// ---------------------------------------------------------------------
+// Stripe webhook: RAW body, zanim json parsers
+// ---------------------------------------------------------------------
 app.post(
   "/api/payments/stripe/webhook",
   express.raw({ type: "application/json" }),
   (req: Request, res: Response) => stripeWebhook(req, res)
 );
 
-/* =========================================================================
- *  Parsers
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// Parsers
+// ---------------------------------------------------------------------
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-/* =========================================================================
- *  CSRF (cookie + validation)
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// CSRF (cookie + validation)
+// ---------------------------------------------------------------------
 app.use(ensureCsrfCookie);
 
 const isPaymentWebhook = (req: Request) =>
@@ -270,10 +267,10 @@ const csrfForMutations = (req: Request, res: Response, next: NextFunction) => {
 };
 app.use(csrfForMutations);
 
-/* =========================================================================
- *  Użytkownik (AUTH)
- * ========================================================================= */
-const JWT_SECRET = (process.env.JWT_SECRET || "dev-secret-change-me").trim();
+// ---------------------------------------------------------------------
+// AUTH – attachUser
+// ---------------------------------------------------------------------
+const JWT_SECRET = env.JWT_SECRET;
 
 function pickToken(req: Request): string | undefined {
   const c = (req as any).cookies || {};
@@ -305,7 +302,7 @@ async function attachUser(req: Request, _res: Response, next: NextFunction) {
       }
     }
 
-    if (process.env.NODE_ENV !== "production") {
+    if (!env.IS_PROD) {
       const devUser = (req.headers["x-dev-user-id"] as string) || undefined;
       const devAdmin = (req.headers["x-dev-admin"] as string) || undefined;
       if (!userId && devUser) userId = devUser;
@@ -340,26 +337,25 @@ async function attachUser(req: Request, _res: Response, next: NextFunction) {
 
 app.use(attachUser);
 
-/* =========================================================================
- *  Health
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// Health
+// ---------------------------------------------------------------------
 app.get("/", (_req: Request, res: Response) => {
   res.send("Giftstore API is running 🚀");
 });
 app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
-
-if (process.env.NODE_ENV !== "production") {
+if (!env.IS_PROD) {
   app.get("/api/_whoami", (req: Request, res: Response) => {
     res.json({ user: (req as any).user || null });
   });
 }
 
-/* =========================================================================
- *  robots.txt + Sitemaps (SEO)
- * ========================================================================= */
-const SITE_URL = (process.env.SITE_URL || ENV_SITE_URL).replace(/\/+$/, "");
+// ---------------------------------------------------------------------
+// robots.txt + Sitemaps (SEO)
+// ---------------------------------------------------------------------
+const SITE_URL = env.SITE_URL.replace(/\/+$/, "");
 const API_URL = (process.env.API_URL || "").replace(/\/+$/, "");
 
 // robots.txt
@@ -386,7 +382,8 @@ app.get("/sitemap.xml", async (req: Request, res: Response) => {
 
 // sitemap produktów
 app.get("/sitemap-products.xml", async (req: Request, res: Response) => {
-  const rows = await getProductRows(prisma, API_URL);
+  // Rzutowanie do any – unifikacja typów wygenerowanego PrismaClient vs oczekiwanie helpera
+  const rows = await getProductRows(prisma as any, API_URL);
   const urls: SimpleEntry[] = rows.map((r) => ({
     loc: `${SITE_URL}/product/${r.slug}`,
     ...(r.updatedAt ? { lastmod: new Date(r.updatedAt as any).toISOString() } : {}),
@@ -405,30 +402,32 @@ app.get("/sitemap-products.xml", async (req: Request, res: Response) => {
 });
 
 // sitemap kategorii
-app.get("/sitemap-categories.xml", async (req: Request, res: Response) => {
-  const rows = await getCategoryRows(prisma, API_URL);
+app.get("/sitemap-categories.xml", async (_req: Request, res: Response) => {
+  const rows = await getCategoryRows(prisma as any, API_URL);
   const urls: SimpleEntry[] = rows.map((r) => ({
     loc: `${SITE_URL}/categories/${r.slug}`,
     ...(r.updatedAt ? { lastmod: new Date(r.updatedAt as any).toISOString() } : {}),
     changefreq: "weekly",
     priority: 0.6,
   }));
-  return sendXmlCached(req, res, buildUrlset(urls), 3600);
+  return sendXmlCached(_req, res, buildUrlset(urls), 3600);
 });
 
 // sitemap bloga
-app.get("/sitemap-blog.xml", async (req: Request, res: Response) => {
-  const rows = await getArticleRows(prisma, API_URL);
+app.get("/sitemap-blog.xml", async (_req: Request, res: Response) => {
+  const rows = await getArticleRows(prisma as any, API_URL);
   const urls: SimpleEntry[] = rows.map((r) => ({
     loc: `${SITE_URL}/blog/${r.slug}`,
     ...(r.updatedAt ? { lastmod: new Date(r.updatedAt as any).toISOString() } : {}),
     changefreq: "weekly",
     priority: 0.7,
   }));
-  return sendXmlCached(req, res, buildUrlset(urls), 3600);
+  return sendXmlCached(_req, res, buildUrlset(urls), 3600);
 });
 
-/* ===== Ping Google/Bing po sitemap ===== */
+// ---------------------------------------------------------------------
+// Ping Google/Bing po sitemap (opcjonalne)
+// ---------------------------------------------------------------------
 async function pingSearchEngines(indexUrl: string) {
   const targets = [
     `https://www.google.com/ping?sitemap=${encodeURIComponent(indexUrl)}`,
@@ -446,7 +445,6 @@ async function pingSearchEngines(indexUrl: string) {
   return out;
 }
 
-/* ===== Pomocnicze: stan pingu + hash sitemapy + e-mail ===== */
 type SeoPingResult = { url: string; status: number };
 type SeoPingState = {
   lastHash: string;
@@ -492,7 +490,13 @@ async function sendSeoMail(subject: string, text: string) {
     } catch {}
   }
 
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SEO_MAIL_FROM, SEO_MAIL_TO } = process.env;
+  const SMTP_HOST = env.SMTP.HOST;
+  const SMTP_PORT = env.SMTP.PORT;
+  const SMTP_USER = env.SMTP.USER;
+  const SMTP_PASS = env.SMTP.PASS;
+  const SEO_MAIL_FROM = process.env.SEO_MAIL_FROM;
+  const SEO_MAIL_TO = process.env.SEO_MAIL_TO;
+
   if (!SMTP_HOST || !SEO_MAIL_FROM || !SEO_MAIL_TO) return;
 
   try {
@@ -553,8 +557,8 @@ app.post("/admin/seo/ping", async (req: Request, res: Response) => {
 });
 
 /** (opcjonalny podgląd statusu) */
-app.get("/admin/seo/ping/status", async (req: Request, res: Response) => {
-  const token = String(req.query.token || req.headers["x-seo-ping-token"] || "");
+app.get("/admin/seo/ping/status", async (_req: Request, res: Response) => {
+  const token = String(_req.query.token || _req.headers["x-seo-ping-token"] || "");
   const secret = String(process.env.SEO_PING_TOKEN || "");
   if (!secret || token !== secret) {
     return res.status(401).json({ error: "unauthorized" });
@@ -566,9 +570,9 @@ app.get("/admin/seo/ping/status", async (req: Request, res: Response) => {
   return res.json({ ok: true, siteUrl: SITE_URL, state: seoPingState });
 });
 
-/* =========================================================================
- *  Newsletter (SMTP + Prisma, double opt-in)
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// Newsletter (SMTP + Prisma, double opt-in)
+// ---------------------------------------------------------------------
 const newsletterLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -577,7 +581,10 @@ const newsletterLimiter = rateLimit({
 });
 
 async function makeTransporter() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
+  const SMTP_HOST = env.SMTP.HOST;
+  const SMTP_PORT = env.SMTP.PORT;
+  const SMTP_USER = env.SMTP.USER;
+  const SMTP_PASS = env.SMTP.PASS;
   if (!SMTP_HOST) return null;
 
   const mod: any = await (Function('return import("nodemailer")')() as Promise<any>).catch(() => null);
@@ -594,11 +601,18 @@ async function makeTransporter() {
 }
 
 function token(n = 24) {
+  return Buffer.from(crypto.getRandomValues(new Uint8Array(n))).toString("base64url");
+}
+// Node 18 nie ma global crypto.getRandomValues — fallback:
+import { randomBytes } from "node:crypto";
+function tokenBytes(n = 24) {
   return randomBytes(n).toString("base64url");
 }
+// używamy fallbacku:
+const makeToken = tokenBytes;
 
 function absUrl(pathname: string) {
-  const base = (process.env.APP_URL || process.env.SITE_URL || "http://localhost:3000").replace(/\/+$/, "");
+  const base = (process.env.APP_URL || env.SITE_URL).replace(/\/+$/, "");
   const needsSlash = pathname && !pathname.startsWith("/");
   return `${base}${needsSlash ? "/" : ""}${pathname}`;
 }
@@ -671,8 +685,8 @@ app.post("/api/newsletter/subscribe", newsletterLimiter, async (req: Request, re
     return res.send({ ok: true, duplicate: true });
   }
 
-  const confirmToken = token();
-  const unsubscribeToken = existing?.unsubscribeToken || token();
+  const confirmToken = makeToken();
+  const unsubscribeToken = existing?.unsubscribeToken || makeToken();
 
   if (!existing) {
     await prisma.newsletterSubscriber.create({
@@ -736,10 +750,10 @@ app.get("/api/newsletter/unsubscribe", async (req: Request, res: Response) => {
   return res.redirect(302, redirectTo);
 });
 
-/* =========================================================================
- *  PUBLIC API (routery)
- * ========================================================================= */
-app.use("/api", coupons);                 // KU PONY (POST /api/coupons/validate)
+// ---------------------------------------------------------------------
+// PUBLIC API (routery)
+// ---------------------------------------------------------------------
+app.use("/api", coupons); // kupony
 app.use("/api/products", products);
 app.use("/api/cart", cart);
 app.use("/api/wishlist", wishlist);
@@ -759,7 +773,7 @@ app.use("/api/orders", publicOrders);
 // My orders (dla zalogowanego)
 app.use("/api/my/orders", myOrders);
 
-// -------- ADMIN API --------
+// ADMIN API
 app.use("/api/admin", admin);
 app.use("/api/admin", adminUsers);
 app.use("/api/admin", adminProducts);
@@ -771,15 +785,15 @@ app.use("/api/admin", adminBlog);
 app.use("/api/admin", adminUpload);
 app.use("/api/admin", adminCoupons);
 
-// -------- PAYMENTS API --------
+// PAYMENTS API
 app.use("/api/payments/stripe", paymentsStripe);
 
-// -------- 404 for unknown API routes --------
+// 404 dla nieznanych /api/*
 app.use("/api/*", (_req: Request, res: Response) => {
   res.status(404).json({ error: "Not found" });
 });
 
-// -------- Global error handler --------
+// Global error handler
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   if (err?.message?.startsWith?.("CORS")) {
     (req as any).log?.warn({ err }, "CORS error");
@@ -793,10 +807,10 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal Server Error", requestId: (req as any).id });
 });
 
-/* =========================================================================
- *  Auto-flow (opcjonalny)
- * ========================================================================= */
-if (process.env.NODE_ENV === "production" && process.env.AUTO_FLOW_ENABLED === "1") {
+// ---------------------------------------------------------------------
+// Auto-flow (opcjonalny, tylko prod)
+// ---------------------------------------------------------------------
+if (env.IS_PROD && process.env.AUTO_FLOW_ENABLED === "1") {
   const every = "*/10 * * * *"; // co 10 min
   const minutes = Math.max(1, parseInt(process.env.AUTO_FLOW_PREPARING_TO_PACKING_MIN || "120", 10));
 
@@ -819,19 +833,21 @@ if (process.env.NODE_ENV === "production" && process.env.AUTO_FLOW_ENABLED === "
   });
 }
 
-/* =========================================================================
- *  Server start
- * ========================================================================= */
+// ---------------------------------------------------------------------
+// Server start
+// ---------------------------------------------------------------------
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {
   logger.info(`API running on http://localhost:${port}`);
   logger.info(`Serving uploads from: ${uploadsDir} -> http://localhost:${port}/uploads/...`);
   logger.info(
-    `APP_URL=${process.env.APP_URL || "http://localhost:3000"} API_URL=${process.env.API_URL || "http://localhost:4000"}`
+    `APP_URL=${process.env.APP_URL || env.SITE_URL} API_URL=${process.env.API_URL || `http://localhost:${port}`}`
   );
 });
 
-// --- Auto-import kuponów z prisma/seed.ts przy starcie (opcjonalny) ---
+// ---------------------------------------------------------------------
+// Auto-import kuponów z prisma/seed.ts przy starcie (opcjonalny)
+// ---------------------------------------------------------------------
 if (process.env.AUTO_IMPORT_COUPONS === "1") {
   (async () => {
     try {
@@ -845,9 +861,12 @@ if (process.env.AUTO_IMPORT_COUPONS === "1") {
         logger.warn("[coupons:auto-import] no items parsed from seed file");
         return;
       }
-      let created = 0, updated = 0, failed = 0;
+      let created = 0,
+        updated = 0,
+        failed = 0;
       for (const raw of items) {
         try {
+          // rzutowanie na any – ujednolica różnice typów między pomocnikami a naszym klientem
           const r = await ensureCoupon(prisma as any, raw as any, { upsert: true });
           if (r?.created) created++;
           else if (r?.updated) updated++;

@@ -1,0 +1,86 @@
+name: E2E
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  cypress:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        ports: [ "5432:5432" ]
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: giftstore
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create api/.env (local DB)
+        run: |
+          mkdir -p api
+          {
+            echo "NODE_ENV=test"
+            echo "PORT=4000"
+            echo "SITE_URL=http://localhost:3000"
+            echo "API_URL=http://localhost:4000"
+            echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/giftstore?schema=public"
+            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}"
+            echo "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}"
+            echo "STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}"
+            echo "SMTP_HOST=${{ secrets.SMTP_HOST }}"
+            echo "SMTP_PORT=${{ secrets.SMTP_PORT }}"
+            echo "SMTP_USER=${{ secrets.SMTP_USER }}"
+            echo "SMTP_PASS=${{ secrets.SMTP_PASS }}"
+            echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
+          } > api/.env
+
+      - name: Migrate + Seed
+        working-directory: api
+        run: |
+          pnpm prisma:migrate
+          pnpm db:seed || true
+
+      - name: Build web & api
+        run: pnpm -r build
+
+      - name: Start API
+        working-directory: api
+        run: pnpm start &
+      
+      - name: Preview web
+        working-directory: web
+        run: pnpm preview --port 3000 &
+
+      - name: Wait on services
+        uses: jakejarvis/wait-action@v0.1.1
+        with:
+          urls: http://localhost:3000,http://localhost:4000/api/health
+          timeout: 60
+
+      - name: Cypress run
+        uses: cypress-io/github-action@v6
+        with:
+          wait-on: 'http://localhost:3000'

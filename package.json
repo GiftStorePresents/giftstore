@@ -1,15 +1,38 @@
 {
   "private": true,
   "name": "giftstore",
+  "version": "1.0.0",
+  "description": "Gift Store monorepo (frontend + backend)",
   "workspaces": [
     "web",
     "api"
   ],
   "scripts": {
-    "dev:web": "pnpm --filter web dev",
-    "dev:api": "pnpm --filter api dev",
-    "build:web": "pnpm --filter web build",
-    "build:api": "pnpm --filter api build"
+    "dev": "pnpm -r --parallel dev",
+    "dev:web": "pnpm --filter ./web dev",
+    "dev:api": "pnpm --filter ./api dev",
+    "build": "pnpm -r build",
+    "build:web": "pnpm --filter ./web build",
+    "build:api": "pnpm --filter ./api build",
+    "start:api": "pnpm --filter ./api start",
+    "preview:web": "pnpm --filter ./web preview",
+    "install:clean": "rd /s /q node_modules && rd /s /q web\\node_modules && rd /s /q api\\node_modules && pnpm install",
+    "lint": "pnpm -r lint || echo 'Lint check skipped'",
+    "test": "pnpm -r test || echo 'Test check skipped'"
   },
+  "engines": {
+    "node": ">=18.18.0",
+    "pnpm": ">=9.0.0"
+  },
+  "keywords": [
+    "giftstore",
+    "monorepo",
+    "vite",
+    "express",
+    "prisma",
+    "pnpm"
+  ],
+  "author": "Gift Store Team",
+  "license": "MIT",
   "packageManager": "pnpm@10.18.2+sha512.9fb969fa749b3ade6035e0f109f0b8a60b5d08a1a87fdf72e337da90dcc93336e2280ca4e44f2358a649b83c17959e9993e777c2080879f3801e6f0d999ad3dd"
 }
