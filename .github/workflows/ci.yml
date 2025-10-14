@@ -1,4 +1,3 @@
-# .github/workflows/ci.yml
 name: CI
 
 on:
@@ -6,10 +5,6 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -30,28 +25,27 @@ jobs:
           --health-retries=5
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'pnpm'
-
-      - name: Enable corepack (pnpm)
-        run: corepack enable
-
+      # ✅ 1. Zainstaluj pnpm **przed** setup-node
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
           run_install: false
 
-      - name: Install deps (monorepo)
+      # ✅ 2. Setup Node + pnpm cache
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install dependencies (monorepo)
         run: pnpm install --frozen-lockfile
 
-      - name: Create api/.env (local Postgres in CI)
+      - name: Create api/.env (local Postgres)
         run: |
           mkdir -p api
           {
@@ -75,12 +69,11 @@ jobs:
         run: pnpm prisma:migrate
 
       - name: (optional) Seed DB
-        if: ${{ always() }}
         working-directory: api
-        run: pnpm -s db:seed || true
+        run: pnpm db:seed || true
 
       - name: Build all
         run: pnpm -r build
 
-      - name: Run tests (if present)
+      - name: Run tests
         run: pnpm -r test --if-present
