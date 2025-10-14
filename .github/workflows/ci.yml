@@ -28,22 +28,22 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # ✅ 1. Zainstaluj pnpm **przed** setup-node
+      # Użyj tej samej wersji pnpm co w package.json (packageManager)
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10.18.2
           run_install: false
 
-      # ✅ 2. Setup Node + pnpm cache
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "pnpm"
+          cache: pnpm
 
+      # Jeśli lockfile jest zignorowany w repo, nie używaj --frozen-lockfile
       - name: Install dependencies (monorepo)
-        run: pnpm install --frozen-lockfile
+        run: pnpm install
 
       - name: Create api/.env (local Postgres)
         run: |
