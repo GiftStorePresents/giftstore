@@ -25,22 +25,20 @@ jobs:
           --health-retries=5
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Uses the pnpm version from root package.json `packageManager`
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
+      # ✅ PNPM + Corepack (bez konfliktów)
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
+          cache: "pnpm"
 
-      - name: Install dependencies (monorepo)
+      - name: Install dependencies
         run: pnpm install
 
       - name: Create api/.env (local Postgres)
@@ -62,7 +60,7 @@ jobs:
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
           } > api/.env
 
-      - name: Prisma migrate
+      - name: Run Prisma migrations
         working-directory: api
         run: pnpm prisma:migrate
 
@@ -70,7 +68,7 @@ jobs:
         working-directory: api
         run: pnpm db:seed || true
 
-      - name: Build all
+      - name: Build all packages
         run: pnpm -r build
 
       - name: Run tests
