@@ -62,6 +62,10 @@ jobs:
         working-directory: api
         run: pnpm prisma:migrate
 
+      - name: Generate Prisma client
+        working-directory: api
+        run: pnpm prisma generate
+
       - name: (optional) Seed DB
         working-directory: api
         run: pnpm db:seed || true
