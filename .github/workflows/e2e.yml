@@ -32,7 +32,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # ✅ Corepack + Node (bez konfliktów z pnpm/action-setup)
       - name: Enable Corepack (pnpm)
         run: corepack enable
 
@@ -40,7 +39,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install
