@@ -60,9 +60,9 @@ jobs:
 
       - name: Run Prisma migrations
         working-directory: api
-        run: pnpm prisma:migrate
+        run: pnpm prisma migrate deploy
 
-      - name: Generate Prisma client
+      - name: Generate Prisma Client
         working-directory: api
         run: pnpm prisma generate
 
