@@ -3,11 +3,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import dotenv from "dotenv";
 import dotenvExpand from "dotenv-expand";
-import { fileURLToPath } from "node:url";
+//import { fileURLToPath } from "node:url";
 
 // ESM-safe __dirname/__filename
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+//onst __filename = fileURLToPath(import.meta.url);
+//const __dirname = path.dirname(__filename);
 
 // Szukamy .env w kilku miejscach (CWD, root repo, api/)
 const candidates = [
