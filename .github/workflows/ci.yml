@@ -35,6 +35,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install
@@ -58,13 +59,18 @@ jobs:
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
           } > api/.env
 
-      - name: Run Prisma migrations
-        working-directory: api
-        run: pnpm prisma migrate deploy
+      # (opcjonalne) czasem warto wyczyścić cache silników prisma przy flakach
+      # - name: Clean Prisma engines cache (optional)
+      #   working-directory: api
+      #   run: rm -rf node_modules/.prisma
 
       - name: Generate Prisma Client
         working-directory: api
         run: pnpm prisma generate
+
+      - name: Run Prisma migrations
+        working-directory: api
+        run: pnpm prisma:deploy
 
       - name: (optional) Seed DB
         working-directory: api

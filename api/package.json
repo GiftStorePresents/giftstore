@@ -3,18 +3,27 @@
   "version": "1.0.0",
   "description": "Backend API for Gift Store (Express + Prisma + PostgreSQL)",
   "private": true,
-  "type": "module",
+
+
+  "type": "commonjs",
+
   "scripts": {
     "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+
+  
+    "build": "prisma generate --schema=prisma/schema.prisma && tsc -p tsconfig.json",
+
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate --schema=prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
     "prisma:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
+
+    
     "db:seed": "prisma db seed",
     "seed": "tsx prisma/seed.ts",
+
     "seed:popular": "tsx scripts/seedPopular.ts",
     "seed:samples": "tsx scripts/seedSampleProducts.ts",
     "slugs": "tsx scripts/printSlugs.ts",
@@ -25,8 +34,14 @@
     "blog:import:only": "tsx scripts/import-blog.ts --only prezenty-dla-niej-2025",
     "blog:import:draft": "tsx scripts/import-blog.ts --draft"
   },
+
+
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+
   "dependencies": {
-    "@prisma/client": "^6.14.0",
+    "@prisma/client": "^6.16.2",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
@@ -67,7 +82,10 @@
     "@types/passport-google-oauth20": "^2.0.16",
     "@types/pdfkit": "^0.17.3",
     "pino-pretty": "^13.1.1",
+
+
     "prisma": "^6.16.2",
+
     "tsx": "^4.20.4",
     "typescript": "^5.9.2"
   },
