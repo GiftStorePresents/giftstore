@@ -35,9 +35,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "pnpm"
+          cache: pnpm
+          cache-dependency-path: '**/pnpm-lock.yaml'
 
-      - name: Install dependencies
+      - name: Install dependencies (monorepo)
         run: pnpm install
 
       - name: Create api/.env (local Postgres)
@@ -59,25 +60,25 @@ jobs:
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
           } > api/.env
 
-      # (opcjonalne) czasem warto wyczyścić cache silników prisma przy flakach
+      # (opcjonalnie) gdyby kiedyś były flaki związane z engine Prisma
       # - name: Clean Prisma engines cache (optional)
       #   working-directory: api
       #   run: rm -rf node_modules/.prisma
 
       - name: Generate Prisma Client
         working-directory: api
-        run: pnpm prisma generate
+        run: pnpm prisma:generate
 
-      - name: Run Prisma migrations
+      - name: Run Prisma migrations (deploy)
         working-directory: api
         run: pnpm prisma:deploy
 
-      - name: (optional) Seed DB
+      - name: Seed DB (optional)
         working-directory: api
         run: pnpm db:seed || true
 
       - name: Build all packages
         run: pnpm -r build
 
-      - name: Run tests
+      - name: Run tests (if present)
         run: pnpm -r test --if-present
