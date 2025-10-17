@@ -64,33 +64,30 @@ jobs:
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
           } > api/.env
 
-      # DB gotowa -> migracje i (opcjonalnie) seed
       - name: Prisma migrate
         working-directory: api
         run: pnpm prisma:migrate
 
-      - name: Seed DB (optional)
-        working-directory: api
-        run: pnpm db:seed || true
-
-      # ZBUDUJ API + WEB zanim je uruchomimy
       - name: Build API
         run: pnpm --filter api build
 
       - name: Build Web
         run: pnpm --filter web build
 
-      # 🧪 Cypress sam uruchomi serwery w TYM samym kroku,
-      # więc procesy będą żyły aż do końca testów
       - name: Run Cypress tests
         uses: cypress-io/github-action@v6
         with:
           start: |
             pnpm --filter api start
             pnpm --filter web preview --port 3000 --strictPort
-          wait-on: |
-            http-get://localhost:4000/api/health
-            http://localhost:3000
-          wait-on-timeout: 120
+          # wybierz JEDNĄ z opcji poniżej:
+
+          # OPCJA A (zalecana, jeśli nie masz /api/health):
+          wait-on: 'http://localhost:3000,tcp:4000'
+
+          # OPCJA B (jeśli masz endpoint zdrowia):
+          # wait-on: 'http://localhost:3000,http://localhost:4000/api/health'
+
+          wait-on-timeout: 120000
         env:
           CYPRESS_BASE_URL: http://localhost:3000
