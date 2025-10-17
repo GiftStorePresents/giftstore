@@ -68,7 +68,7 @@ jobs:
         working-directory: api
         run: pnpm prisma:migrate
 
-      # zbuduj, żeby "pnpm start" miał gotowy dist/
+      # Zbuduj oba projekty, żeby 'start' odpalił gotowy dist/
       - name: Build API
         working-directory: api
         run: pnpm build
@@ -80,14 +80,15 @@ jobs:
       - name: Run Cypress tests
         uses: cypress-io/github-action@v6
         with:
-          # Uruchamiamy serwery jawnie z przejściem do katalogów zamiast --filter
+          # 🔹 Uruchamiamy procesy bez --filter i bez "bash -lc"
           start: |
-            bash -lc "cd api && pnpm start"
-            bash -lc "cd web && pnpm preview --port 3000 --strictPort"
-          # Jeśli masz endpoint zdrowia, użyj tej linii:
-          # wait-on: 'http://localhost:3000,http://localhost:4000/api/health'
-          # Jeśli nie masz endpointu /api/health, użyj TCP na porcie API:
-          wait-on: 'http://localhost:3000,tcp:4000'
-          wait-on-timeout: 120   # 👈 sekundy, nie milisekundy
+            pnpm --dir api start
+            pnpm --dir web preview --port 3000 --strictPort
+          # Jeśli masz endpoint zdrowia:
+          wait-on: |
+            http://localhost:3000
+            http://localhost:4000/api/health
+          # (jeśli nie masz /api/health, zamień powyższą linię na "tcp:4000")
+          wait-on-timeout: 180
         env:
           CYPRESS_BASE_URL: http://localhost:3000
