@@ -3,21 +3,26 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import dotenv from "dotenv";
 import dotenvExpand from "dotenv-expand";
-import { fileURLToPath } from "node:url";
 
-// ESM-safe __dirname/__filename
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// W CommonJS __dirname/__filename są dostępne bez kombinacji
+// a w CI uruchamiasz backend z katalogu "api", więc zwykłe dotenv.config() wystarczy.
+const defaultResult = dotenv.config(); // ładuje api/.env (bo cwd=api)
+dotenvExpand.expand(defaultResult);
 
-// Szukamy .env w kilku miejscach (CWD, root repo, api/)
-const candidates = [
-  path.resolve(process.cwd(), ".env"),
-  path.resolve(__dirname, "../../../.env"),
-  path.resolve(__dirname, "../../.env"),
-];
-
-const envPath = candidates.find((p) => fs.existsSync(p));
-dotenvExpand.expand(dotenv.config(envPath ? { path: envPath } : {}));
+// (opcjonalnie) fallback: jeśli jednak ktoś uruchomi z innego CWD, sprawdź kilka lokalizacji
+if (!process.env.NODE_ENV) {
+  const candidates = [
+    path.resolve(process.cwd(), "api/.env"),
+    path.resolve(process.cwd(), ".env")
+  ];
+  const envPath = candidates.find((p) => fs.existsSync(p));
+  if (envPath) {
+    dotenvExpand.expand(dotenv.config({ path: envPath }));
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[env] fallback loaded from:", envPath);
+    }
+  }
+}
 
 const required = [
   "NODE_ENV",
@@ -30,7 +35,7 @@ const required = [
   "SMTP_PORT",
   "SMTP_USER",
   "SMTP_PASS",
-  "SLACK_WEBHOOK_URL",
+  "SLACK_WEBHOOK_URL"
 ] as const;
 
 const missing = required.filter((k) => !process.env[k] || process.env[k] === "");
@@ -52,13 +57,12 @@ export const env = {
     HOST: process.env.SMTP_HOST!,
     PORT: Number(process.env.SMTP_PORT!),
     USER: process.env.SMTP_USER!,
-    PASS: process.env.SMTP_PASS!,
+    PASS: process.env.SMTP_PASS!
   },
 
-  SLACK_WEBHOOK_URL: process.env.SLACK_WEBHOOK_URL!,
+  SLACK_WEBHOOK_URL: process.env.SLACK_WEBHOOK_URL!
 } as const;
 
-// (dev) pokaż skąd wczytano .env
 if (process.env.NODE_ENV !== "production") {
-  console.log("[env] loaded from:", envPath ?? "(default .env resolution)");
+  console.log("[env] loaded .env via default CWD resolution");
 }

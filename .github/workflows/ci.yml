@@ -39,7 +39,7 @@ jobs:
           cache-dependency-path: '**/pnpm-lock.yaml'
 
       - name: Install dependencies (monorepo)
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Create api/.env (local Postgres)
         run: |
