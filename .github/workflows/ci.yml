@@ -60,11 +60,6 @@ jobs:
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
           } > api/.env
 
-      # (opcjonalnie) gdyby kiedyś były flaki związane z engine Prisma
-      # - name: Clean Prisma engines cache (optional)
-      #   working-directory: api
-      #   run: rm -rf node_modules/.prisma
-
       - name: Generate Prisma Client
         working-directory: api
         run: pnpm prisma:generate
