@@ -82,9 +82,9 @@ jobs:
           start: |
             pnpm --dir api start
             pnpm --dir web preview --port 3000 --strictPort
-          # 👇 JEDNA LINIA (albo folded >-)
+          # czekaj na oba serwisy (jeśli nie masz /api/health, używamy TCP)
           wait-on: >-
-            http://localhost:3000, http://localhost:4000/api/health
+            http://localhost:3000, tcp:4000
           wait-on-timeout: 180
         env:
           CYPRESS_BASE_URL: http://localhost:3000

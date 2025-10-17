@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Backend API for Gift Store (Express + Prisma + PostgreSQL)",
   "private": true,
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "dev": "tsx watch src/server.ts",
