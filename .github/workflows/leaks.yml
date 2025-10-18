@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
   actions: read
-  security-events: write  # potrzebne do uploadu SARIF
+  security-events: write  # wymagane do uploadu SARIF (jeśli włączysz Code Scanning)
 
 jobs:
   gitleaks:
@@ -17,12 +17,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # pełna historia do skanu
+          fetch-depth: 0
 
-      # ✅ Używamy oficjalnej akcji (bez ręcznej instalacji binarki)
+      # ✅ Oficjalna akcja (Docker) – zero ręcznych instalacji
       - name: Run gitleaks
         id: gitleaks
         uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true   # nie przerywaj – pozwól nam wgrać raport i potem świadomie sfailować job
         with:
           args: >
             detect
@@ -34,10 +35,12 @@ jobs:
             --report-path gitleaks.sarif
             --exit-code 1
 
-      # ⬆️ Upload SARIF tylko, gdy to NIE jest PR z forka i gdy repo ma włączony Code scanning
+      # ⬆️ Upload SARIF do Code Scanning TYLKO jeśli raport istnieje
+      # i PR nie pochodzi z forka (token z forka ma za małe uprawnienia)
       - name: Upload SARIF to Code Scanning
         if: |
           always() &&
+          hashFiles('gitleaks.sarif') != '' &&
           !(
             github.event_name == 'pull_request' &&
             github.event.pull_request.head.repo.fork == true
@@ -46,10 +49,17 @@ jobs:
         with:
           sarif_file: gitleaks.sarif
 
-      # Zawsze dodaj raport jako artefakt (zobaczysz nawet w PR z forka / bez Code scanning)
+      # 📎 Zawsze dołącz raport jako artefakt, ale tylko jeśli istnieje
       - name: Upload SARIF artifact
-        if: always()
+        if: always() && hashFiles('gitleaks.sarif') != ''
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report
           path: gitleaks.sarif
+
+      # ❌ Jeśli gitleaks znalazł wycieki (krok miał outcome=failure) – sfailuj job
+      - name: Fail if leaks found
+        if: steps.gitleaks.outcome == 'failure'
+        run: |
+          echo "Gitleaks found potential secrets. Failing the job."
+          exit 1
