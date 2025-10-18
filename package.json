@@ -18,7 +18,10 @@
     "preview:web": "pnpm --filter ./web preview",
     "install:clean": "rd /s /q node_modules && rd /s /q web\\node_modules && rd /s /q api\\node_modules && pnpm install",
     "lint": "pnpm -r lint || echo 'Lint check skipped'",
-    "test": "pnpm -r test || echo 'Test check skipped'"
+    "test": "pnpm -r test || echo 'Test check skipped'",
+    "prepare": "husky",
+    "leaks": "gitleaks detect --source . --redact",
+    "leaks:staged": "gitleaks protect --staged --redact --no-banner"
   },
   "engines": {
     "node": ">=18.18.0",
@@ -36,6 +39,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.18.2+sha512.9fb969fa749b3ade6035e0f109f0b8a60b5d08a1a87fdf72e337da90dcc93336e2280ca4e44f2358a649b83c17959e9993e777c2080879f3801e6f0d999ad3dd",
   "devDependencies": {
-    "cypress": "^15.5.0"
+    "cypress": "^15.5.0",
+    "husky": "^9.1.7"
   }
 }
