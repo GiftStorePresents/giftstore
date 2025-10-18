@@ -62,7 +62,7 @@ jobs:
             echo "SMTP_USER=${{ secrets.SMTP_USER }}"
             echo "SMTP_PASS=${{ secrets.SMTP_PASS }}"
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
-            # 👉 wyłącz inicjalizację OAuth w testach
+            # 🔒 wyłączamy wszystkie strategie OAuth w E2E
             echo "AUTH_DISABLE_OAUTH=true"
           } > api/.env
 

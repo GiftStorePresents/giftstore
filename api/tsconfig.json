@@ -1,28 +1,41 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "lib": ["ES2020"],
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    /* === Kompatybilność i moduły === */
+    "target": "ES2022",                      // nowszy target dla async/await i top-level await
+    "lib": ["ES2022"],                       // aktualna biblioteka standardowa
+    "module": "CommonJS",                    // backend działa w CJS (node dist/server.js)
+    "moduleResolution": "Node",              // klasyczne rozwiązywanie modułów
 
-    "rootDir": "./src",
-    "outDir": "./dist",
+    /* === Struktura projektu === */
+    "rootDir": "./src",                      // katalog źródłowy
+    "outDir": "./dist",                      // katalog kompilacji
+    "baseUrl": "./",                         // poprawne ścieżki względne
+    "paths": {
+      "@/*": ["src/*"]                       // alias do importów (opcjonalnie)
+    },
 
-    "strict": true,
-    "skipLibCheck": true,
+    /* === Typowanie i bezpieczeństwo === */
+    "strict": true,                          // pełny tryb strict
+    "noImplicitAny": true,                   // wymusza typowanie parametrów (usuwa błędy done:any)
     "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,                    // szybciej kompiluje
 
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "resolveJsonModule": true,
+    /* === Interoperacyjność z CommonJS/ESM === */
+    "esModuleInterop": true,                 // potrzebne dla passport-apple, nodemailer, itp.
+    "allowSyntheticDefaultImports": true,    // umożliwia importy domyślne CJS (import x from '...')
+    "resolveJsonModule": true,               // umożliwia import plików .json
 
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
+    /* === Mapowanie i deklaracje === */
+    "sourceMap": true,                       // generuje mapy źródeł (debugowanie)
+    "declaration": true,                     // generuje pliki .d.ts
+    "declarationMap": true,                  // mapy źródeł dla deklaracji
 
-    "types": ["node"],
+    /* === Typy === */
+    "types": ["node", "express"],            // eksplicytne typy środowiska Node/Express
     "typeRoots": ["./src/types", "./node_modules/@types"]
   },
+
+  /* === Zasięg projektu === */
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/__tests__/**"]
 }
