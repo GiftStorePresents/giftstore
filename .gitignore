@@ -52,3 +52,6 @@ prisma/migrations/**/README.md
 
 # --- generated code (do not commit) ---
 api/src/generated
+# Office / system temp
+~$*.docx
+~*.tmp
