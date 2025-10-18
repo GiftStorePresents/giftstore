@@ -62,7 +62,6 @@ jobs:
             echo "SMTP_USER=${{ secrets.SMTP_USER }}"
             echo "SMTP_PASS=${{ secrets.SMTP_PASS }}"
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
-            # 🔒 wyłączamy wszystkie strategie OAuth w E2E
             echo "AUTH_DISABLE_OAUTH=true"
           } > api/.env
 
@@ -84,8 +83,9 @@ jobs:
           start: |
             pnpm --dir api start
             pnpm --dir web preview --port 3000 --strictPort
-          wait-on: >-
-            http://localhost:3000, tcp:4000
+          wait-on: |
+            http://localhost:3000
+            http://localhost:4000
           wait-on-timeout: 180
         env:
           CYPRESS_BASE_URL: http://localhost:3000

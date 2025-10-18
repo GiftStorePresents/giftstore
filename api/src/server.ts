@@ -25,8 +25,8 @@ import blog from "./routes/blog";
 
 // -------- Auth --------
 import { auth } from "./routes/auth";
-import authGoogle from "./routes/authGoogle";
-import authApple from "./routes/authApple";
+// ❌ usunięto: import authGoogle from "./routes/authGoogle";
+// ❌ usunięto: import authApple from "./routes/authApple";
 import authMagic from "./routes/authMagic";
 import authEmailChange from "./routes/authEmailChange";
 import auth2fa from "./routes/auth2fa";
@@ -677,7 +677,7 @@ app.post("/api/newsletter/subscribe", newsletterLimiter, async (req: Request, re
     req.socket.remoteAddress ||
     "";
   const ua = req.headers["user-agent"] || "";
-  const source = String(req.headers.referer || "");
+  const source = req.headers.referer || "";
 
   const existing = await prisma.newsletterSubscriber.findUnique({ where: { email } }).catch(() => null);
 
@@ -697,13 +697,13 @@ app.post("/api/newsletter/subscribe", newsletterLimiter, async (req: Request, re
         unsubscribeToken,
         ip,
         userAgent: String(ua),
-        source,
+        source: String(source),
       },
     });
   } else {
     await prisma.newsletterSubscriber.update({
       where: { email },
-      data: { status: "PENDING", confirmToken, ip, userAgent: String(ua), source },
+      data: { status: "PENDING", confirmToken, ip, userAgent: String(ua), source: String(source) },
     });
   }
 
@@ -759,13 +759,37 @@ app.use("/api/cart", cart);
 app.use("/api/wishlist", wishlist);
 app.use("/api/blog", blog);
 
-// Auth
+// Auth (JWT / magic / 2FA / email-change)
 app.use("/api/auth", auth);
-app.use("/api/auth", authGoogle);
-app.use("/api/auth", authApple);
 app.use("/api/auth/magic", authMagic);
 app.use("/api/auth", authEmailChange);
 app.use("/api/auth", auth2fa);
+
+// ✅ OAuth rejestrujemy warunkowo (żeby CI/E2E nie wywalał się bez kluczy)
+const OAUTH_DISABLED = String(process.env.AUTH_DISABLE_OAUTH || "").toLowerCase() === "true";
+if (OAUTH_DISABLED) {
+  logger.info("[auth] Google/Apple OAuth disabled: AUTH_DISABLE_OAUTH=true");
+} else {
+  (async () => {
+    try {
+      const modGoogle = await import("./routes/authGoogle");
+      const authGoogle = (modGoogle as any).default || (modGoogle as any);
+      app.use("/api/auth", authGoogle);
+      logger.info("[auth] Google OAuth routes registered");
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[auth] Google OAuth not registered");
+    }
+
+    try {
+      const modApple = await import("./routes/authApple");
+      const authApple = (modApple as any).default || (modApple as any);
+      app.use("/api/auth", authApple);
+      logger.info("[auth] Apple OAuth routes registered");
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[auth] Apple OAuth not registered");
+    }
+  })();
+}
 
 // Public orders (checkout)
 app.use("/api/orders", publicOrders);
