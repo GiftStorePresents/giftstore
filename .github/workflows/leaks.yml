@@ -4,11 +4,10 @@ on:
   push:
   pull_request:
 
-# 👇 kluczowe uprawnienia do uploadu Code Scanning
 permissions:
   contents: read
   actions: read
-  security-events: write
+  security-events: write  # potrzebne do uploadu SARIF
 
 jobs:
   gitleaks:
@@ -18,35 +17,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # skanujemy całą historię commita/PR
+          fetch-depth: 0  # pełna historia do skanu
 
-      # Szybka instalacja binarki (Twoja metoda)
-      - name: Install gitleaks
-        run: |
-          set -e
-          mkdir -p "$HOME/bin"
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz \
-            | tar -xz -C "$HOME/bin" gitleaks
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          gitleaks version
-
-      - name: Run gitleaks (detect)
-        id: detect
-        # uwaga: --exit-code 1 sprawi że job poleci na czerwono przy znalezieniu wycieków
-        run: |
-          set -e
-          gitleaks detect \
-            --source . \
-            --config .gitleaks.toml \
-            --redact \
-            --no-banner \
-            --report-format sarif \
-            --report-path gitleaks.sarif \
+      # ✅ Używamy oficjalnej akcji (bez ręcznej instalacji binarki)
+      - name: Run gitleaks
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: >
+            detect
+            --source .
+            --config .gitleaks.toml
+            --redact
+            --no-banner
+            --report-format sarif
+            --report-path gitleaks.sarif
             --exit-code 1
-        # jeśli wolisz, aby PR-y z forków nie failowały, możesz dodać:
-        # if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
 
-      # ⬆️ Upload SARIF tylko gdy mamy uprawnienia (nie PR z forka)
+      # ⬆️ Upload SARIF tylko, gdy to NIE jest PR z forka i gdy repo ma włączony Code scanning
       - name: Upload SARIF to Code Scanning
         if: |
           always() &&
@@ -57,7 +45,8 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: gitleaks.sarif
-      # Zawsze dołącz raport jako artefakt (żebyś miał podgląd nawet z forka)
+
+      # Zawsze dodaj raport jako artefakt (zobaczysz nawet w PR z forka / bez Code scanning)
       - name: Upload SARIF artifact
         if: always()
         uses: actions/upload-artifact@v4
