@@ -55,8 +55,14 @@ api/src/generated
 
 # Office / system temp
 ~$*.docx
+*.docx
 ~*.tmp
 ~$*.xlsx
 ~$*.pptx
 *.tmp
 *.bak
+
+# reports (gitleaks, skany, itp.)
+gitleaks-report.json
+gitleaks-report.sarif
+*.sarif
