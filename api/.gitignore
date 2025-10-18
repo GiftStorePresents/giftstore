@@ -1,0 +1,7 @@
+# --- env (sekrety) ---
+.env
+.env.*
+!.env.example
+# secrets
+api/.env
+web/.env
