@@ -45,7 +45,7 @@ jobs:
       - name: Install dependencies (monorepo)
         run: pnpm install --frozen-lockfile
 
-      - name: Create api/.env (local Postgres)
+      - name: Create api/.env (local Postgres + disable OAuth)
         run: |
           mkdir -p api
           {
@@ -62,6 +62,8 @@ jobs:
             echo "SMTP_USER=${{ secrets.SMTP_USER }}"
             echo "SMTP_PASS=${{ secrets.SMTP_PASS }}"
             echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
+            # 👉 wyłącz inicjalizację OAuth w testach
+            echo "AUTH_DISABLE_OAUTH=true"
           } > api/.env
 
       - name: Prisma migrate
@@ -82,7 +84,6 @@ jobs:
           start: |
             pnpm --dir api start
             pnpm --dir web preview --port 3000 --strictPort
-          # czekaj na oba serwisy (jeśli nie masz /api/health, używamy TCP)
           wait-on: >-
             http://localhost:3000, tcp:4000
           wait-on-timeout: 180
