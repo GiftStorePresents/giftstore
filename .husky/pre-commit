@@ -1,13 +1,12 @@
 #!/usr/bin/env sh
-
 set -e
 
 echo "[pre-commit] Running Gitleaks on staged files..."
 
-# ✅ Najpierw sprawdź, czy Gitleaks jest dostępny w PATH
+# 1) spróbuj systemowego gitleaks
 if command -v gitleaks >/dev/null 2>&1; then
   GL="gitleaks"
-# 🔄 Jeśli nie — spróbuj znaleźć go w typowej lokalizacji Winget
+# 2) fallback: typowa ścieżka Winget (gdy PATH jeszcze nie „weszło”)
 elif [ -n "$LOCALAPPDATA" ] && [ -f "$LOCALAPPDATA/Microsoft/WinGet/Packages/Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe/gitleaks.exe" ]; then
   GL="$LOCALAPPDATA/Microsoft/WinGet/Packages/Gitleaks.Gitleaks_Microsoft.Winget.Source_8wekyb3d8bbwe/gitleaks.exe"
 else
@@ -15,7 +14,6 @@ else
   exit 0
 fi
 
-# 🚀 Uruchom skan Gitleaks na staged files
 "$GL" protect --staged --redact --no-banner
 status=$?
 
