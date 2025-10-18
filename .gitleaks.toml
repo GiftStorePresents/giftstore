@@ -1,0 +1,20 @@
+title = "Gift Store - Gitleaks config"
+
+[allowlist]
+description = "Global allow list for temporary, binary and system files"
+
+# Ignorowane sciezki (np. pliki Office, node_modules, systemowe katalogi)
+paths = [
+  '''~\$.+\.docx$''',
+  '''~\$.+\.xlsx$''',
+  '''~\$.+\.pptx$''',
+  '''(?i)\bTemp\b''',
+  '''(?i)node_modules''',
+  '''(?i)\.git''',
+  '''(?i)\.husky/_'''
+]
+
+# Ignorowane rozszerzenia plikow binarnych i multimediow
+regexes = [
+  '''(?i)\.(png|jpe?g|gif|webp|svg|ico|pdf|zip|7z|rar|exe|dll|pdb|ttf|otf|woff2?|mp4|mp3)$'''
+]
