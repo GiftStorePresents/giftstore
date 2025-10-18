@@ -45,11 +45,10 @@ jobs:
       - name: Install dependencies (monorepo)
         run: pnpm install --frozen-lockfile
 
-      # PNPM 10 blokuje skrypty build; odblokuj Cypress
+      # PNPM 10 domyślnie blokuje skrypty postinstall — odblokuj Cypress
       - name: Approve Cypress build scripts
         run: pnpm approve-builds cypress
 
-      # Zainstaluj/zwerfikuj binarkę Cypress (będzie cachowana)
       - name: Install Cypress binary
         run: pnpm exec cypress install
 
@@ -85,43 +84,43 @@ jobs:
         working-directory: web
         run: pnpm build
 
-      # 🔧 Fallback: jeżeli nie masz cypress.config.* w web/, utworzymy minimalny
-      # i dodamy prosty smoke test, by pipeline nie wybuchał.
+      # 🔧 Bez heredoc: tworzymy minimalną konfigurację/spec, jeśli ich nie ma
       - name: Ensure Cypress project in web/
         run: |
           mkdir -p web/cypress/e2e web/cypress/support web/cypress/fixtures
+
           if [ ! -f "web/cypress.config.ts" ] && [ ! -f "web/cypress.config.js" ]; then
-            cat > web/cypress.config.ts <<'CFG'
-            import { defineConfig } from "cypress";
-            export default defineConfig({
-              e2e: {
-                specPattern: "cypress/e2e/**/*.cy.{js,jsx,ts,tsx}",
-                supportFile: "cypress/support/e2e.ts",
-                fixturesFolder: "cypress/fixtures",
-                videosFolder: "cypress/videos",
-                screenshotsFolder: "cypress/screenshots",
-                baseUrl: "http://localhost:3000",
-              },
-            });
-            CFG
+            printf '%s\n' \
+              'import { defineConfig } from "cypress";' \
+              'export default defineConfig({' \
+              '  e2e: {' \
+              '    specPattern: "cypress/e2e/**/*.cy.{js,jsx,ts,tsx}",' \
+              '    supportFile: "cypress/support/e2e.ts",' \
+              '    fixturesFolder: "cypress/fixtures",' \
+              '    videosFolder: "cypress/videos",' \
+              '    screenshotsFolder: "cypress/screenshots",' \
+              '    baseUrl: "http://localhost:3000",' \
+              '  },' \
+              '});' \
+              > web/cypress.config.ts
           fi
+
           if [ ! -f "web/cypress/support/e2e.ts" ]; then
-            echo "// support file" > web/cypress/support/e2e.ts
+            printf '%s\n' "// support file" > web/cypress/support/e2e.ts
           fi
-          # jeżeli nie ma żadnych speców, dodajemy smoke test
+
           if [ -z "$(ls -1 web/cypress/e2e 2>/dev/null)" ]; then
-            cat > web/cypress/e2e/smoke.cy.ts <<'SPEC'
-            describe('smoke', () => {
-              it('loads home page', () => {
-                cy.visit('/');
-                cy.contains('html');
-              });
-              it('api health works', () => {
-                cy.request('http://localhost:4000/api/health')
-                  .its('status').should('eq', 200);
-              });
-            });
-            SPEC
+            printf '%s\n' \
+              "describe('smoke', () => {" \
+              "  it('loads home page', () => {" \
+              "    cy.visit('/');" \
+              "    cy.get('html').should('exist');" \
+              "  });" \
+              "  it('api health works', () => {" \
+              "    cy.request('http://localhost:4000/api/health').its('status').should('eq', 200);" \
+              "  });" \
+              "});" \
+              > web/cypress/e2e/smoke.cy.ts
           fi
 
       - name: Run Cypress tests
@@ -136,5 +135,4 @@ jobs:
           wait-on-timeout: 180
         env:
           CYPRESS_BASE_URL: http://localhost:3000
-          # opcjonalnie wyłącz nagrywanie wideo, by logi były lżejsze:
           CYPRESS_VIDEO: 'false'
