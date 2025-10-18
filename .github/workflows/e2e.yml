@@ -45,6 +45,14 @@ jobs:
       - name: Install dependencies (monorepo)
         run: pnpm install --frozen-lockfile
 
+      # 👇 PNPM 10: pozwól wykonać skrypty build/postinstall dla cypress
+      - name: Approve Cypress build scripts
+        run: pnpm approve-builds cypress
+
+      # 👇 Zainstaluj/zweryfikuj binarkę Cypressa (trafi do ~/.cache/Cypress i będzie cachowana przez akcję)
+      - name: Install Cypress binary
+        run: pnpm exec cypress install
+
       - name: Create api/.env (local Postgres + disable OAuth)
         run: |
           mkdir -p api
