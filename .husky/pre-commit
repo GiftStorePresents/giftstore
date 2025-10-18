@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+# UWAGA: husky v9 pokazuje warning o 2 linijkach; na razie je zostawiamy – działają.
+. "$(dirname -- "$0")/_/husky.sh"
+
+set -e
+
+echo "[pre-commit] Running Gitleaks on staged files..."
+
+# spróbuj systemowego gitleaks z PATH
+if command -v gitleaks >/dev/null 2>&1; then
+  GL="gitleaks"
+# fallback: typowy link winget (jeśli PATH się nie zaktualizował)
+elif [ -n "$LOCALAPPDATA" ] && [ -f "$LOCALAPPDATA/Microsoft/WinGet/Links/gitleaks.exe" ]; then
+  GL="$LOCALAPPDATA/Microsoft/WinGet/Links/gitleaks.exe"
+else
+  echo "⚠️  gitleaks not found (PATH). Skipping secret scan."
+  exit 0
+fi
+
+"$GL" protect --staged --redact --no-banner
+status=$?
+
+if [ $status -ne 0 ]; then
+  echo "❌ Gitleaks found potential secrets. Commit blocked."
+  exit $status
+fi
+
+echo "✅ No secrets detected by Gitleaks."
