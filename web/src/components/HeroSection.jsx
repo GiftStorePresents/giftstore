@@ -5,7 +5,6 @@ export default function HeroSection() {
       className="
         hero-banner relative rounded-3xl overflow-hidden mb-10
         h-72 md:h-96 flex items-center justify-center shadow-lg
-        bg-gradient-to-r from-mainRed to-gold
       "
     >
       {/* Zdjęcie tła */}
@@ -16,10 +15,10 @@ export default function HeroSection() {
         loading="lazy"
       />
 
-      {/* LIGHT overlay (zostaje jak u Ciebie) */}
+      {/* LIGHT overlay (pomarańcz → złoto) */}
       <div className="hero-overlay-light absolute inset-0 pointer-events-none bg-gradient-to-br from-mainRed/80 to-gold/70" />
 
-      {/* DARK overlay (bordowy gradient – styl w App.css) */}
+      {/* DARK overlay (burgundowy gradient – styl niżej w CSS) */}
       <div className="hero-overlay-dark absolute inset-0 pointer-events-none" />
 
       {/* Tekst + CTA */}
@@ -34,10 +33,8 @@ export default function HeroSection() {
 
         <a
           href="#categories"
-          className="
-            hero-cta inline-block font-bold px-8 py-3 rounded-2xl shadow-xl
-            bg-gold text-mainRed hover:bg-mainRed hover:text-gold transition
-          "
+          className="hero-cta inline-block font-bold px-8 py-3 rounded-2xl shadow-xl
+                    bg-mainRed text-white hover:brightness-110 transition"
         >
           Zobacz kategorie
         </a>

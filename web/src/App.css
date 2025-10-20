@@ -44,6 +44,8 @@ body,
   --gold: #ffd700;
   --gold-600: #e6c200;
   --bgUltraLight: #fffdf5;
+  --gold-100: #f3e9b7;   /* bardzo jasny, prawie biały żółty */
+  --gold-300: #e0b835;   /* jasny żółty do gradientu */
 
   /* Search (light) – klasyczny */
   --search-bg: #ffffff;
@@ -408,64 +410,42 @@ html.dark #root .btn-danger, html.dark #root .btn-delete, html.dark #root .btn-e
 .hero-banner .hero-title,
 .hero-banner .hero-subtitle { color: #fff !important; }
 
+/* Domyślnie LIGHT overlay */
+.hero-overlay-light { display: block; }
+
+/* Domyślnie DARK overlay ukryty */
+.hero-overlay-dark  { display: none; }
+
+/* Dark mode – burgundowy/czerwony gradient + przyciemnienie zdjęcia */
+:root[data-theme="dark"] .hero-overlay-light,
+html.dark .hero-overlay-light { display: none !important; }
+
+:root[data-theme="dark"] .hero-overlay-dark,
+html.dark .hero-overlay-dark {
+  display: block !important;
+  background:
+    radial-gradient(180% 120% at 20% 10%, rgba(128, 0, 32, .50) 0%, rgba(128, 0, 32, 0) 60%),
+    radial-gradient(150% 120% at 85% 90%, rgba(92, 11, 36, .55) 0%, rgba(92, 11, 36, 0) 65%),
+    linear-gradient(135deg, rgba(92, 11, 36, .82) 0%, rgba(58, 15, 34, .82) 45%, rgba(27, 16, 40, .78) 100%);
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="dark"] .hero-banner .hero-photo,
+html.dark .hero-banner .hero-photo {
+  filter: brightness(.72) saturate(.98) contrast(1.02);
+}
+
 :root[data-theme="dark"] .hero-banner,
 html.dark .hero-banner {
-  background: none !important;
-  background:
-    radial-gradient(1100px 560px at 82% 18%, rgba(32,216,171,.18), transparent 62%),
-    radial-gradient(900px 520px at 14% 86%, rgba(157,124,255,.18), transparent 64%),
-    radial-gradient(720px 440px at 76% 72%, rgba(255,209,102,.12), transparent 68%),
-    linear-gradient(135deg, #5c0b24 0%, #3a0f22 48%, #1b1028 100%),
-    var(--pattern-url);
-  background-blend-mode: screen, screen, screen, normal, multiply;
-  color: var(--text);
-  border: 1px solid color-mix(in oklab, #b83280 45%, #7aa2ff 20%, #000 35%);
-  border-radius: 28px;
+  border: 1px solid color-mix(in oklab, #7a0f2b 60%, #000 40%);
   box-shadow: 0 22px 55px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.03);
+  border-radius: 28px;
   position: relative;
   overflow: hidden;
 }
-:root[data-theme="dark"] .hero-overlay, html.dark .hero-overlay { display: none !important; }
-:root[data-theme="dark"] .hero-banner .hero-photo, html.dark .hero-banner .hero-photo {
-  filter: brightness(.68) saturate(.98) contrast(1.02);
-}
-:root[data-theme="dark"] .hero-banner::before,
-:root[data-theme="dark"] .hero-banner::after,
-html.dark .hero-banner::before,
-html.dark .hero-banner::after {
-  content: ""; position: absolute; inset: -12%; pointer-events: none;
-}
-:root[data-theme="dark"] .hero-banner::before, html.dark .hero-banner::before {
-  background: radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0,0,0,.22) 100%); mix-blend-mode: multiply;
-}
-:root[data-theme="dark"] .hero-banner::after, html.dark .hero-banner::after {
-  background:
-    radial-gradient(900px 240px at 50% 35%, rgba(186,26,88,.22), transparent 70%),
-    radial-gradient(700px 220px at 52% 65%, rgba(32,216,171,.12), transparent 70%);
-  mix-blend-mode: screen; opacity: .85;
-}
-:root[data-theme="dark"] .hero-banner .hero-title, html.dark .hero-banner .hero-title {
-  color: #ffffff; text-shadow: 0 2px 14px rgba(0,0,0,.35);
-}
-:root[data-theme="dark"] .hero-banner .hero-subtitle, html.dark .hero-banner .hero-subtitle {
-  color: rgba(234,241,255,.92);
-}
-:root[data-theme="dark"] .hero-banner .hero-cta, html.dark .hero-banner .hero-cta {
-  background: linear-gradient(135deg, var(--accent) 0%, #ffb703 100%) !important;
-  color: #1b1330 !important;
-  border: 1px solid rgba(255,214,102,.45);
-  box-shadow: 0 10px 30px rgba(255,214,102,.18);
-  transition: transform .15s ease, filter .2s ease;
-}
-:root[data-theme="dark"] .hero-banner .hero-cta:hover, html.dark .hero-banner .hero-cta:hover {
-  filter: brightness(1.06); transform: translateY(-1px);
-}
 
-/* --- HERO overlay toggles --- */
-.hero-overlay-light { display: block; }
-.hero-overlay-dark  { display: none; }
-:root[data-theme="dark"] .hero-overlay-light, html.dark .hero-overlay-light { display: none !important; }
-:root[data-theme="dark"] .hero-overlay-dark,  html.dark .hero-overlay-dark  { display: block !important; }
+/* CTA hover underline */
+.hero-banner .hero-cta:hover { text-decoration: underline; }
 
 /* =========================
    Drobne ulepszenia
@@ -498,8 +478,10 @@ html.dark .hero-banner::after {
 @keyframes themeBurst {
   0% { opacity:0; filter:blur(16px);} 30% {opacity:.75; filter:blur(8px);} 100% {opacity:0; filter:blur(22px);}
 }
+
+/* === FIX autoplay Swipera (nie wyłączaj wszystkiego globalnie) === */
 @media (prefers-reduced-motion: reduce) {
-  .fade-in-glass, .glass, * { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+  .fade-in-glass, .glass { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
   .theme-switching * { transition:none !important; }
   .theme-burst { animation:none !important; opacity:0 !important; }
 }
@@ -529,37 +511,378 @@ html.dark .swiper-button-next, html.dark .swiper-button-prev {
 /* =========================================================
    InPost Geowidget — minimalny, bezpieczny set (NIE ruszamy headera/lupy)
    ========================================================= */
-
-/* Modal ponad overlayami aplikacji */
-.easypack-modal {
-  z-index: 2147483000 !important;
-  position: fixed !important;
-}
-
-/* Leaflet — bez blendów/filtrów, żeby mapa była czytelna */
+.easypack-modal { z-index: 2147483000 !important; position: fixed !important; }
 .easypack-modal .leaflet-container,
-.easypack-modal .leaflet-pane {
-  filter: none !important;
-  mix-blend-mode: normal !important;
+.easypack-modal .leaflet-pane { filter: none !important; mix-blend-mode: normal !important; }
+.easypack-modal, .easypack-widget, .easypack-container, .easypack-widget * { color-scheme: light !important; }
+.easypack-widget input, .easypack-widget button, .easypack-widget select, .easypack-widget textarea { all: revert; }
+
+/* =========================================================
+   HEADER — DARK MODE: biały tekst + akcenty żółte
+   ========================================================= */
+:root, html { --hdr-yellow: var(--accent, #ffd166); }
+
+/* Tekst headera na biało (dark) */
+:root[data-theme="dark"] header, html.dark header { --hdr-text-dark: #ffffff; }
+:root[data-theme="dark"] header a,
+:root[data-theme="dark"] header span,
+html.dark header a,
+html.dark header span {
+  color: var(--hdr-text-dark) !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,.35);
 }
 
-/* Wnętrze widżetu zawsze „light”, niezależnie od motywu strony */
-.easypack-modal,
-.easypack-widget,
-.easypack-container,
-.easypack-widget * {
-  color-scheme: light !important;
+/* Akcenty na żółto: Home (active), 🎁, ❤️, lupa */
+:root[data-theme="dark"] header a.text-gold,
+:root[data-theme="dark"] header .text-gold,
+:root[data-theme="dark"] header a[aria-current="page"],
+html.dark header a.text-gold,
+html.dark header .text-gold,
+html.dark header a[aria-current="page"] {
+  color: var(--hdr-yellow) !important;
+  fill: var(--hdr-yellow) !important;
 }
 
-/* Neutralizacja resetu Tailwinda tylko w InPost (gdyby preflight psuł wygląd) */
-.easypack-widget input,
-.easypack-widget button,
-.easypack-widget select,
-.easypack-widget textarea {
-  all: revert;
+/* Logo: 🎁 żółte, „Gift Store” białe */
+:root[data-theme="dark"] header .logo .logo-icon,
+html.dark header .logo .logo-icon { color: var(--hdr-yellow) !important; fill: var(--hdr-yellow) !important; }
+:root[data-theme="dark"] header .logo .logo-text,
+html.dark header .logo .logo-text { color: #ffffff !important; }
+
+/* Serduszko na żółto (dla pewności) */
+:root[data-theme="dark"] header a[href*="wishlist"] svg,
+html.dark header a[href*="wishlist"] svg { color: var(--hdr-yellow) !important; fill: var(--hdr-yellow) !important; }
+
+/* Lupa w searchbarze – żółta */
+header .searchbar .search-btn,
+header .btn-search,
+header .searchbar .search-btn svg { color: var(--hdr-yellow) !important; fill: var(--hdr-yellow) !important; }
+
+/* =========================================================
+   KATEGORIE (DROPDOWN) — DARK MODE
+   Domyślnie: czerwony tekst | Hover: żółte tło + czerwony tekst
+   ========================================================= */
+:root[data-theme="dark"] #categories-menu, html.dark #categories-menu {
+  background: #0f1424 !important;
+  color: #ffffff !important;
+  border-color: var(--hdr-yellow) !important;
+}
+:root[data-theme="dark"] #categories-menu a, html.dark #categories-menu a {
+  color: var(--mainRed, #d7263d) !important;
+  background: transparent !important;
+}
+:root[data-theme="dark"] #categories-menu a:first-child,
+html.dark #categories-menu a:first-child {
+  background: transparent !important;
+  color: var(--mainRed, #d7263d) !important;
+}
+:root[data-theme="dark"] #categories-menu a:hover,
+html.dark #categories-menu a:hover,
+:root[data-theme="dark"] #categories-menu a:focus-visible,
+html.dark #categories-menu a:focus-visible {
+  background: var(--hdr-yellow) !important;
+  color: var(--mainRed, #d7263d) !important;
+  text-decoration: none !important;
+  outline: none;
 }
 
-/* Uwaga:
-   - ŻADNYCH reguł typu .easypack-widget .widget__header … ani
-     .easypack-widget .search__button::before/::after – to zostawiamy widżetowi.
-   - Dzięki temu lupa i pasek wyszukiwania działają normalnie. */
+/* =========================================================
+   KOSZYK — TEKST/ODCIEŃ + BADGE
+   ========================================================= */
+:root[data-theme="dark"] header button[title="Koszyk"] span,
+html.dark header button[title="Koszyk"] span,
+:root[data-theme="dark"] header button[aria-label="Otwórz koszyk"] span,
+html.dark header button[aria-label="Otwórz koszyk"] span {
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,.35);
+  transition: color .25s ease;
+}
+:root[data-theme="dark"] header button[title="Koszyk"]:hover span,
+html.dark header button[title="Koszyk"]:hover span,
+:root[data-theme="dark"] header button[aria-label="Otwórz koszyk"]:hover span,
+html.dark header button[aria-label="Otwórz koszyk"]:hover span {
+  color: var(--hdr-yellow) !important;
+}
+
+/* Badge – zawsze żółte tło + CZERWONY numer (oba motywy) */
+header .cart-badge,
+header .cart-count,
+header [data-cart-count] {
+  background: var(--accent, #ffd166) !important;
+  color: var(--mainRed, #d7263d) !important;
+  font-weight: 700;
+  border: 1px solid rgba(0,0,0,.15);
+  box-shadow: 0 2px 6px rgba(0,0,0,.35);
+}
+
+/* **NOWE**: badge NIE zmienia koloru przy hover/focus/active — OBA MOTYWY */
+header .cart-badge:hover,
+header .cart-count:hover,
+header [data-cart-count]:hover,
+header .bg-gold.rounded-full:hover,
+header .cart-badge:focus,
+header .cart-count:focus,
+header [data-cart-count]:focus,
+header .bg-gold.rounded-full:focus,
+header .cart-badge:active,
+header .cart-count:active,
+header [data-cart-count]:active,
+header .bg-gold.rounded-full:active {
+  background: var(--accent, #ffd166) !important;
+  color: var(--mainRed, #d7263d) !important;
+  transition: none !important;
+}
+
+/* (zachowujemy również wersję zasięgów dark – dodatkowe wzmocnienie) */
+:root[data-theme="dark"] header .cart-badge,
+:root[data-theme="dark"] header .cart-count,
+:root[data-theme="dark"] header [data-cart-count],
+:root[data-theme="dark"] header .bg-gold.rounded-full {
+  background: var(--accent, #ffd166) !important;
+  color: var(--mainRed, #d7263d) !important;
+}
+:root[data-theme="dark"] header .cart-badge:hover,
+:root[data-theme="dark"] header .cart-count:hover,
+:root[data-theme="dark"] header [data-cart-count]:hover,
+:root[data-theme="dark"] header .bg-gold.rounded-full:hover,
+:root[data-theme="dark"] header .cart-badge:focus,
+:root[data-theme="dark"] header .cart-count:focus,
+:root[data-theme="dark"] header [data-cart-count]:focus,
+:root[data-theme="dark"] header .bg-gold.rounded-full:focus,
+:root[data-theme="dark"] header .cart-badge:active,
+:root[data-theme="dark"] header .cart-count:active,
+:root[data-theme="dark"] header [data-cart-count]:active,
+:root[data-theme="dark"] header .bg-gold.rounded-full:active {
+  background: var(--accent, #ffd166) !important;
+  color: var(--mainRed, #d7263d) !important;
+  transition: none !important;
+}
+
+/* =========================================================
+   Bestseller Swiper – kolory i nawigacja
+   ========================================================= */
+.bestseller-swiper { --swiper-theme-color: var(--accent, #ffd166); position: relative; z-index: 1; }
+.bestseller-swiper .swiper { overflow: visible; }
+
+/* (opcjonalne) Twoje własne przyciski – zostawiamy bazę */
+.bsl-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 42px;
+  height: 42px;
+  border-radius: 9999px;
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.25);
+  box-shadow: 0 10px 28px rgba(0,0,0,.35);
+  pointer-events: auto;
+}
+.bsl-prev { left: 6px; }
+.bsl-next { right: 6px; }
+.bsl-nav::after {
+  content: "";
+  position: absolute; inset: 0; margin: auto;
+  width: 12px; height: 12px;
+  border-top: 3px solid var(--accent, #ffd166);
+  border-left: 3px solid var(--accent, #ffd166);
+  transform: rotate(-45deg);
+}
+.bsl-next::after { transform: rotate(135deg); }
+.bsl-nav:hover { filter: brightness(1.08); }
+
+/* === LIGHT MODE: okrągłe złote przyciski z czerwonym chevronem (44px) === */
+.bestseller-swiper .swiper-button-prev,
+.bestseller-swiper .swiper-button-next {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-100) 0%, var(--gold-300) 100%);
+  color: var(--mainRed); /* kolor „chevronu” */
+  border: 1px solid rgba(0,0,0,.08);
+  box-shadow: 0 6px 16px rgba(0,0,0,.25), 0 0 0 4px rgba(255,215,0,.18);
+  backdrop-filter: blur(6px) saturate(1.2);
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+  z-index: 9999;
+}
+.bestseller-swiper .swiper-button-prev { left: 14px; }
+.bestseller-swiper .swiper-button-next { right: 14px; }
+.bestseller-swiper .swiper-button-prev::after,
+.bestseller-swiper .swiper-button-next::after {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--mainRed);
+  text-shadow: 0 1px 1px rgba(0,0,0,.25);
+}
+.bestseller-swiper .swiper-button-prev:hover,
+.bestseller-swiper .swiper-button-next:hover {
+  transform: scale(1.06);
+  box-shadow: 0 10px 22px rgba(0,0,0,.28), 0 0 0 6px rgba(255,215,0,.22);
+}
+
+/* === DARK MODE: okrągłe czerwone przyciski (44px), białe chevrony === */
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-prev,
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-next {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e11d48 0%, #b91c1c 100%);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 6px 20px rgba(0,0,0,.55), 0 0 0 4px rgba(225,29,72,.15);
+  backdrop-filter: blur(8px) saturate(1.2);
+}
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-prev { left: 14px; }
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-next { right: 14px; }
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-prev::after,
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-next::after {
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.5);
+}
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-prev:hover,
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-next:hover {
+  transform: scale(1.06);
+  box-shadow: 0 10px 28px rgba(0,0,0,.6), 0 0 0 6px rgba(225,29,72,.18);
+}
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-prev:focus,
+:root[data-theme="dark"] .bestseller-swiper .swiper-button-next:focus {
+  outline: none;
+  box-shadow: 0 10px 28px rgba(0,0,0,.6), 0 0 0 6px rgba(225,29,72,.25);
+}
+
+/* minus/plus – czytelne w dark (bez zmian) */
+:root[data-theme="dark"] .bg-graySoft { background:#1f2937; color:#eaf1ff; }
+
+/* „Do kasy” – zero animacji, zero cieni tekstu */
+.checkout-btn {
+  color: #e00000 !important;     /* light */
+  text-shadow: none !important;
+  transition: none !important;   /* brak animacji */
+}
+.checkout-btn:hover {
+  color: #ffffff !important;     /* natychmiastowa zmiana */
+  text-shadow: none !important;
+  transition: none !important;
+}
+/* DARK: czerwony bez efektów */
+:root[data-theme="dark"] .checkout-btn,
+html.dark .checkout-btn {
+  color: #ff2626 !important;
+  text-shadow: none !important;
+  transition: none !important;
+}
+:root[data-theme="dark"] .checkout-btn:hover,
+html.dark .checkout-btn:hover {
+  color: #ffffff !important;
+  text-shadow: none !important;
+  transition: none !important;
+}
+
+/* „Wyczyść” (dark) – podkreślenie dopiero przy hover + czerwony */
+:root[data-theme="dark"] .btn-clear:hover,
+html.dark .btn-clear:hover {
+  text-decoration: underline !important;
+  color: #ec2020 !important;
+}
+
+/* === KOSZYK: licznik zawsze czerwony, także przy hover/focus/active === */
+header .cart-badge,
+header .cart-count,
+header [data-cart-count] {
+  color: var(--mainRed, #d7263d) !important;
+}
+
+/* gdy hover/focus/active na samym liczniku */
+header .cart-badge:hover,
+header .cart-count:hover,
+header [data-cart-count]:hover,
+header .cart-badge:focus,
+header .cart-count:focus,
+header [data-cart-count]:focus,
+header .cart-badge:active,
+header .cart-count:active,
+header [data-cart-count]:active {
+  color: var(--mainRed, #d7263d) !important;
+}
+
+/* gdy hover/focus/active jest na PRZYCISKU/KLINKU koszyka */
+header button[title="Koszyk"]:hover .cart-badge,
+header button[title="Koszyk"]:hover .cart-count,
+header button[title="Koszyk"]:hover [data-cart-count],
+header button[aria-label="Otwórz koszyk"]:hover .cart-badge,
+header button[aria-label="Otwórz koszyk"]:hover .cart-count,
+header button[aria-label="Otwórz koszyk"]:hover [data-cart-count],
+header button[title="Koszyk"]:focus .cart-badge,
+header button[title="Koszyk"]:focus .cart-count,
+header button[title="Koszyk"]:focus [data-cart-count],
+header button[aria-label="Otwórz koszyk"]:focus .cart-badge,
+header button[aria-label="Otwórz koszyk"]:focus .cart-count,
+header button[aria-label="Otwórz koszyk"]:focus [data-cart-count],
+header button[title="Koszyk"]:active .cart-badge,
+header button[title="Koszyk"]:active .cart-count,
+header button[title="Koszyk"]:active [data-cart-count],
+header button[aria-label="Otwórz koszyk"]:active .cart-badge,
+header button[aria-label="Otwórz koszyk"]:active .cart-count,
+header button[aria-label="Otwórz koszyk"]:active [data-cart-count] {
+  color: var(--mainRed, #d7263d) !important;
+}
+
+/* === KOSZYK: licznik ZAWSZE czerwony (light + dark), także gdy hover na przycisku === */
+header .cart-badge,
+header [data-cart-count] {
+  color: var(--mainRed, #d7263d) !important;
+}
+
+/* rodzic w różnych stanach (hover/focus/active) */
+header .cart-trigger:hover .cart-badge,
+header .cart-trigger:hover [data-cart-count],
+header .cart-trigger:focus .cart-badge,
+header .cart-trigger:focus [data-cart-count],
+header .cart-trigger:active .cart-badge,
+header .cart-trigger:active [data-cart-count] {
+  color: var(--mainRed, #d7263d) !important;
+}
+
+/* gdy same utilsy typu group-hover/text-white próbują wejść na licznik */
+header .cart-badge:hover,
+header [data-cart-count]:hover,
+header .cart-badge:focus,
+header [data-cart-count]:focus,
+header .cart-badge:active,
+header [data-cart-count]:active {
+  color: var(--mainRed, #d7263d) !important;
+}
+
+/* dark mode – to samo, dla świętego spokoju */
+:root[data-theme="dark"] header .cart-badge,
+:root[data-theme="dark"] header [data-cart-count],
+:root[data-theme="dark"] header .cart-trigger:hover .cart-badge,
+:root[data-theme="dark"] header .cart-trigger:hover [data-cart-count],
+:root[data-theme="dark"] header .cart-trigger:focus .cart-badge,
+:root[data-theme="dark"] header .cart-trigger:focus [data-cart-count],
+:root[data-theme="dark"] header .cart-trigger:active .cart-badge,
+:root[data-theme="dark"] header .cart-trigger:active [data-cart-count] {
+  color: var(--mainRed, #d7263d) !important;
+}
+
+/* Footer newsletter — "Zapisz się": czerwony tekst (light + dark), ciemniejszy przy hover */
+#root .footer-newsletter button[type="submit"],
+#root .footer-newsletter [type="submit"],
+#root .footer-newsletter button[type="submit"] *,
+#root .footer-newsletter [type="submit"] * {
+  color: #d7263d !important;   /* czerwony */
+  text-shadow: none !important;
+}
+
+#root .footer-newsletter button[type="submit"]:hover,
+#root .footer-newsletter [type="submit"]:hover,
+#root .footer-newsletter button[type="submit"]:hover *,
+#root .footer-newsletter [type="submit"]:hover * {
+  color: #b3132a !important;   /* trochę mocniejszy czerwony przy hover */
+}

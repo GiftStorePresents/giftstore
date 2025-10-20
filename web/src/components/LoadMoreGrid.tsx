@@ -1,8 +1,21 @@
-// src/components/LoadMoreGrid.js
-import { useState } from "react";
+// src/components/LoadMoreGrid.tsx
+import React, { useState } from "react";
 import ProductCard from "./ProductCard";
 
-export default function LoadMoreGrid({ products, step = 12, setToast }) {
+type Item = {
+  slug: string;
+  [k: string]: any;
+};
+
+export default function LoadMoreGrid({
+  products,
+  step = 12,
+  setToast,
+}: {
+  products: Item[];
+  step?: number;
+  setToast?: (msg: string) => void;
+}) {
   const [count, setCount] = useState(step);
   const visible = products.slice(0, count);
   const more = count < products.length;

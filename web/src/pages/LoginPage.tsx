@@ -64,10 +64,8 @@ export default function LoginPage() {
       setLocalErr("Wpisz email i hasło.");
       return;
     }
-    // (opcjonalnie) upewnij się, że redirect jest zapamiętany
     if (targetAfterLogin) sessionStorage.setItem(REDIRECT_KEY, targetAfterLogin);
     await login(form.email, form.password);
-    // przekierowanie robi useEffect po ustawieniu user
   }
 
   async function sendMagicLink(e: React.FormEvent) {
@@ -82,7 +80,6 @@ export default function LoginPage() {
 
     try {
       const csrf = getCookie(CSRF_COOKIE_NAME);
-      // zapamiętaj redirect zanim wyślesz link (po kliknięciu w mailu też wrócimy we właściwe miejsce)
       if (targetAfterLogin) sessionStorage.setItem(REDIRECT_KEY, targetAfterLogin);
 
       const res = await fetch(`${API_BASE}/api/auth/magic/start`, {
@@ -190,7 +187,6 @@ export default function LoginPage() {
             type="button"
             className="w-full rounded py-2 font-bold bg-white text-gray-800 border hover:bg-gray-50"
             onClick={() => {
-              // ⬇️ zapisz cel i dopiero wychodzimy do OAuth
               if (targetAfterLogin) sessionStorage.setItem(REDIRECT_KEY, targetAfterLogin);
               window.location.href = `${API_BASE}/api/auth/google`;
             }}
@@ -199,7 +195,8 @@ export default function LoginPage() {
           </button>
         </div>
 
-        {/* Apple */}
+        {/* Apple — tymczasowo wyłączone */}
+        {/*
         <button
           type="button"
           className="w-full rounded py-2 font-bold bg-white text-gray-800 border hover:bg-gray-50 mt-2"
@@ -210,6 +207,7 @@ export default function LoginPage() {
         >
           Zaloguj przez Apple
         </button>
+        */}
 
         {/* Divider */}
         <div className="flex items-center gap-3 my-4 text-xs text-gray-500">

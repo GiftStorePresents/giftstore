@@ -25,11 +25,15 @@ import blog from "./routes/blog";
 
 // -------- Auth --------
 import { auth } from "./routes/auth";
-// ❌ usunięto: import authGoogle from "./routes/authGoogle";
-// ❌ usunięto: import authApple from "./routes/authApple";
+import authGoogle from "./routes/authGoogle";
+import authApple from "./routes/authApple";
 import authMagic from "./routes/authMagic";
 import authEmailChange from "./routes/authEmailChange";
 import auth2fa from "./routes/auth2fa";
+
+// ✅ Załaduj strategie OAuth PRZED passport.initialize() i montowaniem routerów
+import "./lib/passport";       // GoogleStrategy (rejestruje się warunkowo na podstawie env)
+import "./lib/passportApple";  // AppleStrategy (rejestruje się warunkowo na podstawie env)
 
 // -------- Admin --------
 import admin from "./routes/admin";
@@ -252,10 +256,20 @@ const isPaymentWebhook = (req: Request) =>
 const isNewsletterSubscribe = (req: Request) => req.path === "/api/newsletter/subscribe";
 const isCouponValidate = (req: Request) => req.path === "/api/coupons/validate";
 
+// ✅ OAuth — brak CSRF (provider redirectuje bez naszego tokena)
+const isOAuthPath = (req: Request) => {
+  const p = req.path;
+  // Google
+  if (p === "/api/auth/google" || p === "/api/auth/google/callback") return true;
+  // Apple (start GET, callback najczęściej POST)
+  if (p === "/api/auth/apple" || p === "/api/auth/apple/callback") return true;
+  return false;
+};
+
 const csrfForMutations = (req: Request, res: Response, next: NextFunction) => {
   const method = req.method.toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
-  if (isPaymentWebhook(req) || req.path === "/admin/seo/ping" || isNewsletterSubscribe(req) || isCouponValidate(req)) {
+  if (isPaymentWebhook(req) || isOAuthPath(req) || req.path === "/admin/seo/ping" || isNewsletterSubscribe(req) || isCouponValidate(req)) {
     return next();
   }
 
@@ -382,7 +396,6 @@ app.get("/sitemap.xml", async (req: Request, res: Response) => {
 
 // sitemap produktów
 app.get("/sitemap-products.xml", async (req: Request, res: Response) => {
-  // Rzutowanie do any – unifikacja typów wygenerowanego PrismaClient vs oczekiwanie helpera
   const rows = await getProductRows(prisma as any, API_URL);
   const urls: SimpleEntry[] = rows.map((r) => ({
     loc: `${SITE_URL}/product/${r.slug}`,
@@ -759,37 +772,13 @@ app.use("/api/cart", cart);
 app.use("/api/wishlist", wishlist);
 app.use("/api/blog", blog);
 
-// Auth (JWT / magic / 2FA / email-change)
+// Auth (JWT / magic / 2FA / email-change / OAuth)
 app.use("/api/auth", auth);
+app.use("/api/auth", authGoogle); // /api/auth/google, /api/auth/google/callback
+app.use("/api/auth", authApple);  // /api/auth/apple,  /api/auth/apple/callback (POST)
 app.use("/api/auth/magic", authMagic);
 app.use("/api/auth", authEmailChange);
 app.use("/api/auth", auth2fa);
-
-// ✅ OAuth rejestrujemy warunkowo (żeby CI/E2E nie wywalał się bez kluczy)
-const OAUTH_DISABLED = String(process.env.AUTH_DISABLE_OAUTH || "").toLowerCase() === "true";
-if (OAUTH_DISABLED) {
-  logger.info("[auth] Google/Apple OAuth disabled: AUTH_DISABLE_OAUTH=true");
-} else {
-  (async () => {
-    try {
-      const modGoogle = await import("./routes/authGoogle");
-      const authGoogle = (modGoogle as any).default || (modGoogle as any);
-      app.use("/api/auth", authGoogle);
-      logger.info("[auth] Google OAuth routes registered");
-    } catch (e: any) {
-      logger.warn({ err: e?.message }, "[auth] Google OAuth not registered");
-    }
-
-    try {
-      const modApple = await import("./routes/authApple");
-      const authApple = (modApple as any).default || (modApple as any);
-      app.use("/api/auth", authApple);
-      logger.info("[auth] Apple OAuth routes registered");
-    } catch (e: any) {
-      logger.warn({ err: e?.message }, "[auth] Apple OAuth not registered");
-    }
-  })();
-}
 
 // Public orders (checkout)
 app.use("/api/orders", publicOrders);
@@ -890,7 +879,6 @@ if (process.env.AUTO_IMPORT_COUPONS === "1") {
         failed = 0;
       for (const raw of items) {
         try {
-          // rzutowanie na any – ujednolica różnice typów między pomocnikami a naszym klientem
           const r = await ensureCoupon(prisma as any, raw as any, { upsert: true });
           if (r?.created) created++;
           else if (r?.updated) updated++;

@@ -132,7 +132,7 @@ export default function Footer() {
         <div className="max-w-7xl mx-auto px-6 py-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm">
           <p className="text-gray-200">© {year} Gift Store. Wszystkie prawa zastrzeżone.</p>
 
-          <div className="w-full sm:w-auto">
+          <div className="w-full sm:w-auto footer-newsletter">
             <NewsletterForm className="w-full sm:w-auto" />
             <p className="mt-2 text-[12px] text-gray-200/80">
               Zapisując się, akceptujesz{" "}

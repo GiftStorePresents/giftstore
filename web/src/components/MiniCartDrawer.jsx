@@ -193,25 +193,32 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
                   <div className="flex-1">
                     <div className="font-bold text-mainRed">{item.name}</div>
                     <div className="text-sm text-gray-600">{item.price} zł / szt.</div>
+
+                    {/* Ilość – jasne, z obrysem (widoczne w dark mode) */}
                     <div className="flex items-center gap-2 mt-1">
                       <button
                         onClick={() => updateQuantity(item.slug, item.quantity - 1)}
                         disabled={item.quantity <= 1}
-                        className="px-2 rounded bg-graySoft hover:bg-mainRed hover:text-white disabled:bg-gray-200"
+                        className="w-8 h-8 grid place-items-center rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-mainRed hover:text-white disabled:opacity-50"
                         aria-label="Zmniejsz ilość"
                       >
-                        -
+                        −
                       </button>
-                      <span className="w-6 text-center font-bold">{item.quantity}</span>
+
+                      <span className="w-8 h-8 grid place-items-center font-bold rounded-lg bg-white text-gray-900 border border-gray-300 select-none">
+                        {item.quantity}
+                      </span>
+
                       <button
                         onClick={() => updateQuantity(item.slug, item.quantity + 1)}
-                        className="px-2 rounded bg-graySoft hover:bg-mainRed hover:text-white"
+                        className="w-8 h-8 grid place-items-center rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-mainRed hover:text-white"
                         aria-label="Zwiększ ilość"
                       >
                         +
                       </button>
                     </div>
                   </div>
+
                   <div className="text-right">
                     <div className="font-extrabold text-gold">
                       {item.price * item.quantity} zł
@@ -256,7 +263,6 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
                 </button>
               </div>
 
-              {/* Info o zastosowanym kuponie */}
               {(appliedCoupon || discount > 0) && (
                 <div className="mt-2 flex items-center gap-2">
                   {appliedCoupon && (
@@ -311,7 +317,7 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
             </div>
 
             {/* Dostawa + Płatność */}
-            <div className="px-4 py-4 border-t space-y-4">
+            <div className="px-4 py-6 border-t mt-3 space-y-4">
               <div>
                 <div className="text-sm font-bold text-mainRed mb-2">Dostawa</div>
                 <div className="space-y-2">
@@ -384,30 +390,31 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
                 <span>Suma</span>
                 <span>{totalLocal} zł</span>
               </div>
+
+              {/* Przyciski akcji */}
               <div className="flex gap-2 mt-4">
                 <button
-                  className="flex-1 bg-white border-2 border-gold text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-gold/20 transition"
+                  className="btn-clear flex-1 bg-white border-2 border-gold text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-gold/20 transition"
                   onClick={() => clearCart()}
                 >
                   Wyczyść
                 </button>
+
                 <Link
                   to="/cart"
                   onClick={handleClose}
-                  className="flex-1 text-center bg-white border-2 border-gray-200 text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-gray-100 transition"
+                  className="flex-1 flex items-center justify-center bg-white border-2 border-gray-200 text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-gray-100 transition"
                 >
                   Przejdź do koszyka
                 </Link>
+
+                {/* Do kasy – czerwony tekst, perfekcyjnie wycentrowany */}
                 <Link
-                  to={{
-                    pathname: "/checkout",
-                  }}
-                  state={{
-                    shippingMethod: selectedShippingDef.id,
-                    paymentMethod: selectedPayment,
-                  }}
+                  to={{ pathname: "/checkout" }}
+                  state={{ shippingMethod: selectedShippingDef.id, paymentMethod: selectedPayment }}
                   onClick={handleClose}
-                  className="flex-1 text-center bg-gold text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-mainRed hover:text-gold transition"
+                  className="flex-1 flex items-center justify-center bg-gold font-bold px-4 py-2 rounded-xl hover:bg-mainRed hover:text-gold transition checkout-btn"
+                  aria-label="Przejdź do kasy"
                 >
                   Do kasy
                 </Link>

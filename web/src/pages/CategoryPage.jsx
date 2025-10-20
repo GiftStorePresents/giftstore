@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import FiltersDrawer from "../components/FiltersDrawer";
 import SeoHead from "../components/SeoHead";
-import LoadMoreGrid from "../components/LoadMoreGrid";
+import LoadMoreGrid from "../components/LoadMoreGrid"; // ✅ bez .jsx
 import Breadcrumbs from "../components/Breadcrumbs";
 import { env } from "../env";
 import { useApiProducts } from "../hooks/useApiProducts";

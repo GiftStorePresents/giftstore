@@ -1,7 +1,9 @@
+// src/components/BestsellerSlider.tsx
 import { useMemo } from "react";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation, Pagination, Autoplay, EffectCoverflow } from "swiper/modules";
 
+// nie mieszaj bundle + pojedynczych css – trzymaj się jednego wariantu
 import "swiper/css";
 import "swiper/css/navigation";
 import "swiper/css/pagination";
@@ -11,16 +13,18 @@ import ProductCard from "./ProductCard";
 import { useApiProducts } from "../hooks/useApiProducts";
 import { mapApiProductToCard } from "../utils/productMapper";
 
-/* --- Typy z backendu --- */
+/** API */
 export interface ApiProduct {
-  id: string | number;
-  slug: string;
-  name: string;
+  id?: string | number;
+  slug?: string;
+  name?: string;
   description?: string;
   price?: number;
   priceCents?: number;
   featured?: boolean;
-  promo?: boolean;
+  isFeatured?: boolean;
+  bestseller?: boolean;
+  tags?: string[];
   media?: { url: string }[];
   image?: string;
   rating?: number;
@@ -28,59 +32,47 @@ export interface ApiProduct {
   oldPrice?: number | null;
 }
 
-/* --- Typ karty w UI --- */
-export interface CardProduct {
-  id: string | number;
-  slug: string;
-  name: string;
-  description: string;
-  price: number;
-  oldPrice?: number | null;
-  rating: number;
-  bestseller: boolean;
-  promo: boolean;
-  stock?: number;
-  image: string;
-  media?: { url: string }[];
-}
+/** UI */
+type BaseCard = NonNullable<ReturnType<typeof mapApiProductToCard>>;
+type CardProduct = BaseCard & { bestseller: boolean };
 
-interface BestsellerSliderProps {
-  setToast?: (msg: string) => void;
-}
+const isFeatured = (p: ApiProduct) =>
+  !!(p.featured || p.isFeatured || p.bestseller || p.tags?.includes?.("featured"));
 
-export default function BestsellerSlider({ setToast }: BestsellerSliderProps) {
+interface Props { setToast?: (msg: string) => void; }
+
+export default function BestsellerSlider({ setToast }: Props) {
   const { items, loading, error } = useApiProducts({ page: 1, limit: 50 });
 
-  const bestsellers: CardProduct[] = useMemo(() => {
-    const featured = items.filter((p: ApiProduct) => !!p.featured);
-    const base = (featured.length ? featured : items).slice(0, 12);
+  const products = useMemo<ApiProduct[]>(
+    () => (Array.isArray(items) ? items : []),
+    [items]
+  );
 
+  const bestsellers = useMemo<CardProduct[]>(() => {
+    const featured = products.filter(isFeatured);
+    const base = (featured.length ? featured : products).slice(0, 12);
     return base
-      .map((p: ApiProduct) => {
-        const mapped = mapApiProductToCard(p) as Omit<CardProduct, "bestseller"> | null;
-        if (!mapped) return null;
-        return { ...mapped, bestseller: !!p.featured } as CardProduct;
+      .map((p) => {
+        const m = mapApiProductToCard(p);
+        return m ? ({ ...m, bestseller: isFeatured(p) } as CardProduct) : null;
       })
-      .filter((x): x is CardProduct => x !== null);
-  }, [items]);
+      .filter((x): x is CardProduct => !!x);
+  }, [products]);
 
-  if (loading) {
-    return (
-      <section className="my-14 p-4" aria-label="Ładowanie bestsellerów">
-        Ładowanie…
-      </section>
-    );
-  }
-
-  if (error) {
-    return (
-      <section className="my-14 p-4 text-red-600" aria-label="Błąd ładowania bestsellerów">
-        {String(error)}
-      </section>
-    );
-  }
-
+  if (loading) return <section className="my-14 p-4">Ładowanie…</section>;
+  if (error)   return <section className="my-14 p-4 text-red-600">{String(error)}</section>;
   if (!bestsellers.length) return null;
+
+  /** Ile slajdów max widać jednocześnie przy szerokim ekranie */
+  const MAX_SPV = 3;
+
+  /**
+   * Swiper ma wymagania dla loop:
+   * - liczba slajdów > slidesPerView * 2 (bezpiecznie: >= 2×MAX_SPV)
+   * Jeżeli jest mniej – loop off, autoplay off, żeby nie było przeskoków/ostrzeżeń.
+   */
+  const canLoop = bestsellers.length >= MAX_SPV * 2;
 
   return (
     <section className="my-14" aria-labelledby="bestseller-heading">
@@ -88,16 +80,49 @@ export default function BestsellerSlider({ setToast }: BestsellerSliderProps) {
         Bestsellery
       </h3>
 
-      <div className="w-[80vw] max-w-7xl mx-auto overflow-hidden rounded-3xl pt-[25px] pb-[50px]">
+      <div className="relative w-[80vw] max-w-7xl mx-auto rounded-3xl pt-[25px] pb-[50px] overflow-visible">
         <Swiper
+          key={`${bestsellers.length}-${canLoop ? "loop" : "noloop"}`} // wymusza re-init po dociągnięciu danych
+          className="bestseller-swiper"
           modules={[Navigation, Pagination, Autoplay, EffectCoverflow]}
           effect="coverflow"
-          grabCursor
           centeredSlides
-          loop
+          grabCursor
+          allowTouchMove
+          /** loop włączamy tylko gdy jest „bezpiecznie” */
+          loop={canLoop}
+          loopAdditionalSlides={canLoop ? 4 : 0}
+          speed={650}
+          autoplay={
+            canLoop
+              ? {
+                  delay: 3200,
+                  disableOnInteraction: false,
+                  pauseOnMouseEnter: false,
+                  stopOnLastSlide: false,
+                  waitForTransition: true,
+                }
+              : undefined
+          }
           navigation
           pagination={{ clickable: true }}
-          autoplay={{ delay: 3200, disableOnInteraction: false }}
+          onSwiper={(sw) => {
+            // Po inicjalizacji dociągniętych danych dobijamy aktualizacje,
+            // żeby nawigacja/paginacja i autoplay były zsynchronizowane.
+            setTimeout(() => {
+              // @ts-ignore – metody istnieją w runtime
+              sw.update?.();
+              // @ts-ignore
+              sw.navigation?.update?.();
+              // @ts-ignore
+              sw.pagination?.render?.();
+              // @ts-ignore
+              sw.pagination?.update?.();
+              // jeśli autoplay jest, upewnij się że działa
+              // @ts-ignore
+              sw.autoplay?.start?.();
+            }, 0);
+          }}
           coverflowEffect={{
             rotate: 30,
             stretch: 0,
@@ -112,14 +137,13 @@ export default function BestsellerSlider({ setToast }: BestsellerSliderProps) {
             900:  { slidesPerView: 3,   spaceBetween: 18 },
             1280: { slidesPerView: 3,   spaceBetween: 24 },
           }}
-          style={{ width: "100%" }}
         >
-          {bestsellers.map((product) => (
-            <SwiperSlide key={product.id}>
+          {bestsellers.map((p, i) => (
+            <SwiperSlide key={String((p as any).id ?? (p as any).slug ?? i)}>
               <div className="flex justify-center items-stretch py-6 sm:py-8 h-full">
                 <div className="w-full max-w-[360px]">
                   <ProductCard
-                    product={product}
+                    product={p}
                     setToast={setToast}
                     large
                     scaleOnHover={false}

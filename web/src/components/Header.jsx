@@ -102,13 +102,9 @@ export default function Header() {
         {/* Pasek: logo — wyszukiwarka — akcje */}
         <div className="h-16 flex items-center gap-3">
           {/* Logo */}
-          <Link
-            to="/"
-            className="flex items-center gap-2 text-2xl font-bold hover:text-gold transition shrink-0"
-            aria-label="Gift Store - strona główna"
-          >
-            <FaGift className="text-gold" size={32} />
-            <span>Gift Store</span>
+          <Link to="/" className="logo flex items-center gap-2 text-2xl font-bold hover:text-gold transition shrink-0">
+            <FaGift className="logo-icon text-gold" size={32} />
+            <span className="logo-text">Gift Store</span>
           </Link>
 
           {/* SearchBar desktop */}
@@ -269,14 +265,17 @@ export default function Header() {
             <button
               type="button"
               onClick={openDrawer}
-              className="flex flex-col items-center justify-center hover:text-gold transition relative"
+              className="cart-trigger flex flex-col items-center justify-center hover:text-gold transition relative"
               aria-label="Otwórz koszyk"
               title="Koszyk"
             >
               <div ref={cartIconRef} className="relative flex items-center justify-center">
                 <FaShoppingCart size={26} aria-hidden />
                 {cartCount > 0 && (
-                  <span className="absolute -top-2 -right-3 bg-gold text-mainRed font-bold rounded-full px-2 py-0.5 text-xs shadow">
+                  <span
+                    className="cart-badge absolute -top-2 -right-3 bg-gold !text-mainRed font-bold rounded-full px-2 py-0.5 text-xs shadow"
+                    data-cart-count={cartCount}
+                  >
                     {cartCount}
                   </span>
                 )}

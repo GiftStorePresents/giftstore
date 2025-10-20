@@ -13,7 +13,7 @@ import "swiper/css/thumbs";
 import "swiper/css/free-mode";
 
 import ProductCard from "../components/ProductCard";
-import { useWishlist } from "../context/WishlistContext";
+import { useWishlist, type WishlistContextValue } from "../context/WishlistContext"; // ✅ bez .tsx
 import { useCart } from "../context/CartContext";
 import SeoHead from "../components/SeoHead";
 import Breadcrumbs from "../components/Breadcrumbs";
@@ -142,7 +142,7 @@ export default function ProductPage({ setToast }: ProductPageProps) {
     return m;
   }, [all]);
 
-  const { toggleWishlist, isInWishlist } = useWishlist() as any;
+  const { toggleWishlist, isInWishlist } = useWishlist() as WishlistContextValue;
   const { addToCart } = useCart();
 
   const inWishlist = product ? !!isInWishlist(product.slug) : false;
@@ -340,7 +340,6 @@ export default function ProductPage({ setToast }: ProductPageProps) {
     if (!product?.slug) return;
     try {
       addViewed(product);
-      // bierzemy świeżą historię, bez bieżącego produktu
       const arr = getViewed().filter((s: string) => s !== product.slug);
       setRecentlyViewed(arr);
     } catch {
@@ -363,20 +362,14 @@ export default function ProductPage({ setToast }: ProductPageProps) {
 
   // dokładnie 4 ostatnie, w kolejności historii
   const lastViewedProducts = useMemo(() => {
-    const uniq = Array.from(new Set(recentlyViewed)); // zachowuje kolejność
+    const uniq = Array.from(new Set(recentlyViewed));
     return uniq.map((s: string) => bySlug[s]).filter(Boolean).slice(0, 4) as CardProduct[];
   }, [recentlyViewed, bySlug]);
 
-  if (loading) {
-    return <div className="text-center mt-20">Ładowanie…</div>;
-  }
-  if (error) {
-    return <div className="text-center mt-20 text-red-600">{String(error)}</div>;
-  }
+  if (loading) return <div className="text-center mt-20">Ładowanie…</div>;
+  if (error) return <div className="text-center mt-20 text-red-600">{String(error)}</div>;
   if (!product) {
-    return (
-      <div className="text-center mt-20 text-mainRed font-bold">Nie znaleziono produktu.</div>
-    );
+    return <div className="text-center mt-20 text-mainRed font-bold">Nie znaleziono produktu.</div>;
   }
 
   const galleryImages: string[] =
@@ -390,17 +383,15 @@ export default function ProductPage({ setToast }: ProductPageProps) {
 
   const qualifiesFreeShip = Number(product.price) >= FREE_SHIPPING_FROM;
 
-  // Swiper — pętle tylko gdy mamy wystarczająco slajdów
   const canLoopGallery = galleryImages.length > 1;
 
-  // ustawienia „podobnych”: bez coverflow, stabilny FreeMode + Navigation + Pagination
   const similarBreakpoints = {
     0: { slidesPerView: 1 },
     640: { slidesPerView: 2 },
     1024: { slidesPerView: 4 },
   } as const;
   const maxSlidesPerView = 4;
-  const canLoopSimilar = similar.length > maxSlidesPerView; // loop tylko jeśli mamy więcej niż max widocznych
+  const canLoopSimilar = similar.length > maxSlidesPerView;
 
   /* ===== Render ===== */
   return (
@@ -411,9 +402,7 @@ export default function ProductPage({ setToast }: ProductPageProps) {
         image={product.image}
         canonical={canonical}
         type="product"
-        jsonLd={
-          [productJsonLd, breadcrumbsJsonLd].filter(Boolean) as object[]
-        }
+        jsonLd={[productJsonLd, breadcrumbsJsonLd].filter(Boolean) as object[]}
       />
 
       <Breadcrumbs
@@ -461,9 +450,8 @@ export default function ProductPage({ setToast }: ProductPageProps) {
           <button
             className="text-2xl"
             onClick={() => {
-              (toggleWishlist as any)(product);
-              setToast &&
-                setToast(inWishlist ? "Usunięto z ulubionych" : "Dodano do ulubionych");
+              (toggleWishlist as WishlistContextValue["toggleWishlist"])(product);
+              setToast && setToast(inWishlist ? "Usunięto z ulubionych" : "Dodano do ulubionych");
             }}
             title={inWishlist ? "Usuń z ulubionych" : "Dodaj do ulubionych"}
             aria-label={inWishlist ? "Usuń z ulubionych" : "Dodaj do ulubionych"}
@@ -680,13 +668,12 @@ export default function ProductPage({ setToast }: ProductPageProps) {
         </section>
       )}
 
-      {/* Podobne produkty — NOWY bezpieczny swiper */}
+      {/* Podobne produkty */}
       {similar.length > 0 && (
         <section className="my-12">
           <h3 className="text-2xl font-bold text-mainRed mb-6 text-center">Podobne produkty</h3>
           <div className="w-full max-w-[1800px] mx-auto overflow-hidden">
             <Swiper
-              // klucz na długość, aby odświeżał się poprawnie przy zmianach ilości
               key={`similar-${similar.length}`}
               modules={[Navigation, Pagination, FreeMode, Autoplay]}
               freeMode={{ enabled: true, momentum: true }}
@@ -695,7 +682,6 @@ export default function ProductPage({ setToast }: ProductPageProps) {
               pagination={{ clickable: true }}
               autoplay={similar.length > 6 ? { delay: 4200, disableOnInteraction: false } : false}
               breakpoints={similarBreakpoints}
-              // loop tylko gdy jest więcej niż max widocznych
               loop={canLoopSimilar}
               className="pb-6"
             >
@@ -711,29 +697,24 @@ export default function ProductPage({ setToast }: ProductPageProps) {
         </section>
       )}
 
-      {/* Rekomendacje (cross-sell z rankerem) */}
-     <Recommendations
+      {/* Rekomendacje */}
+      <Recommendations
         title="Powiązane propozycje"
         hint={`${product?.category || ""} ${product?.brand || ""}`.trim()}
         exclude={[product.slug]}
         mode="cross"
-        count={8}      // maksymalnie 8
-        rows={2}       // 2 pełne rzędy
-        fillRows       // na 3-kolumnowym układzie będzie 6 (3+3), na 4-kolumnowym 8 (4+4)
+        count={8}
+        rows={2}
+        fillRows
       />
 
-      {/* Ostatnio oglądane (z historii) */}
+      {/* Ostatnio oglądane */}
       {lastViewedProducts.length > 0 && (
         <section className="my-12">
           <h3 className="text-2xl font-bold text-mainRed mb-6 text-center">Ostatnio oglądane</h3>
           <div className="grid gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 max-w-6xl mx-auto">
             {lastViewedProducts.map((p) => (
-              <ProductCard
-                key={`rv-${p.slug}`}
-                product={p}
-                setToast={setToast}
-                fixedHeight={460}
-              />
+              <ProductCard key={`rv-${p.slug}`} product={p} setToast={setToast} fixedHeight={460} />
             ))}
           </div>
         </section>

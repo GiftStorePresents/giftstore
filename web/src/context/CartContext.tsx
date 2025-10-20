@@ -10,74 +10,60 @@ import React, {
   ReactNode,
 } from "react";
 
-const CartContext = createContext<any>(null);
+/* =========================
+   Konfiguracja i stałe
+   ========================= */
+export const SHIPPING_BASE = 15;          // zł
+export const FREE_SHIPPING_FROM = 200;    // zł
 
-// Konfiguracja kosztów dostawy (w zł)
-export const SHIPPING_BASE = 15;
-export const FREE_SHIPPING_FROM = 200;
-
-// API base
 const API_URL =
   ((import.meta as any)?.env?.VITE_API_URL as string) || "http://localhost:4000";
 
-// ===== helpers (fallback – gdy API niedostępne) =====
-// Uwaga: ceny w koszyku trzymasz w zł (liczby całkowite).
-function getDiscountValueFallback(subtotalZl: number, code: string) {
-  if (!code) return 0;
-  const c = code.trim().toUpperCase();
-
-  // % kupony
-  if (c === "ALL10" || c === "GIFT10" || c === "PROMO10")
-    return Math.round(subtotalZl * 0.1);
-
-  // Kwotowe kupony
-  if (c === "WELCOME5") return Math.min(5, subtotalZl); // 5 zł, ale nie więcej niż suma
-  if (c === "PROMO40") return Math.min(40, subtotalZl); // max 40 zł
-
-  // FREESHIP nie daje rabatu kwotowego (tylko dostawa = 0)
-  return 0;
-}
-
-function hasFreeShippingAfterDiscount(sumAfterDiscountZl: number, code: string | null) {
-  const c = (code || "").trim().toUpperCase();
-  return sumAfterDiscountZl >= FREE_SHIPPING_FROM || c === "FREESHIP";
-}
-
-// ===== safe JSON utils =====
-const safeGet = <T,>(key: string, fallback: T) => {
+/* =========================
+   Safe JSON utils
+   ========================= */
+const safeGet = <T,>(key: string, fallback: T): T => {
   try {
-    return (JSON.parse(localStorage.getItem(key) || "null") ?? fallback) as T;
+    const raw = localStorage.getItem(key);
+    return (raw ? JSON.parse(raw) : fallback) as T;
   } catch {
     return fallback;
   }
 };
-const safeSet = (key: string, val: any) => {
+const safeSet = (key: string, val: unknown) => {
   try {
     localStorage.setItem(key, JSON.stringify(val));
   } catch {}
 };
 
-// ===== types =====
-interface CartItem {
+/* =========================
+   Typy
+   ========================= */
+export interface CartItem {
   slug: string;
   name: string;
-  price: number; // w zł (liczby całkowite)
+  /** Cena w zł (liczby całkowite lub z groszami – projekt trzyma w zł) */
+  price: number;
   quantity: number;
 }
-interface AddOpts {
+
+export interface AddOpts {
   openDrawer?: boolean;
 }
 
-type ServerValidateResponse = {
+export type ServerValidateResponse = {
   ok: boolean;
-  discount: number; // grosze
+  /** Rabat w groszach (format backendowy) */
+  discount: number;
   code?: string;
-  type?: "PERCENT" | "FIXED";
-  amount?: number; // grosze
+  type?: "PERCENT" | "FIXED" | null;
+  /** Kwota rabatu w groszach (dla FIXED) */
+  amount?: number | null;
+  /** Procent (dla PERCENT) */
   percentage?: number | null;
 };
 
-interface CartContextProps {
+export interface CartContextProps {
   cart: CartItem[];
   addToCart: (product: CartItem, opts?: AddOpts) => void;
   removeFromCart: (slug: string) => void;
@@ -92,22 +78,54 @@ interface CartContextProps {
   discountCode: string;
   setDiscountCode: (code: string) => void;
   appliedCoupon: string | null;
-  discount: number; // zł (to co realnie obniża sumę)
-  applyCoupon: (
-    code: string,
-    userId?: string
-  ) => Promise<ServerValidateResponse>;
+  /** Kwota rabatu w zł (już po konwersji z groszy) */
+  discount: number;
+  applyCoupon: (code: string, userId?: string) => Promise<ServerValidateResponse>;
   clearCoupon: () => void;
 
-  subtotal: number; // zł
-  shipping: number; // zł
-  total: number; // zł
-  afterDiscount: number; // zł
+  /** Suma pozycji (zł, przed rabatem i dostawą) */
+  subtotal: number;
+  /** Koszt dostawy (zł) – 0 dla darmowej */
+  shipping: number;
+  /** Suma końcowa (zł) po rabacie i z dostawą */
+  total: number;
+  /** Suma po rabacie, przed dostawą (zł) */
+  afterDiscount: number;
 
   SHIPPING_BASE: number;
   FREE_SHIPPING_FROM: number;
   hasFreeShipping: (sumAfterDiscountZl: number) => boolean;
 }
+
+/* =========================
+   Fallback kuponów (lokalnie)
+   ========================= */
+function getDiscountValueFallback(subtotalZl: number, code: string) {
+  if (!code) return 0;
+  const c = code.trim().toUpperCase();
+
+  // % kupony
+  if (c === "ALL10" || c === "GIFT10" || c === "PROMO10") {
+    return Math.round(subtotalZl * 0.1);
+  }
+
+  // Kwotowe kupony
+  if (c === "WELCOME5") return Math.min(5, subtotalZl); // 5 zł, ale nie więcej niż suma
+  if (c === "PROMO40") return Math.min(40, subtotalZl); // max 40 zł
+
+  // FREESHIP nie daje rabatu kwotowego (tylko dostawa = 0)
+  return 0;
+}
+
+function hasFreeShippingAfterDiscount(sumAfterDiscountZl: number, code: string | null) {
+  const c = (code || "").trim().toUpperCase();
+  return sumAfterDiscountZl >= FREE_SHIPPING_FROM || c === "FREESHIP";
+}
+
+/* =========================
+   Context
+   ========================= */
+const CartContext = createContext<CartContextProps | null>(null);
 
 type LastAction = "add" | "update" | "clear" | null;
 
@@ -121,7 +139,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(() =>
     safeGet<string | null>("cart:appliedCoupon", null)
   );
-  // serverDiscount przechowujemy w ZŁ (bo koszyk liczysz w zł)
+  /** Rabat po walidacji serwerowej, przechowywany w zł (zgodnie z UI) */
   const [serverDiscount, setServerDiscount] = useState<number>(() =>
     safeGet<number>("cart:discountValue", 0)
   );
@@ -129,7 +147,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const lastActionRef = useRef<LastAction>(null);
 
-  // ===== persist =====
+  /* ===== Persist ===== */
   useEffect(() => {
     safeSet("cart:items", cart);
   }, [cart]);
@@ -143,7 +161,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     safeSet("cart:discountValue", serverDiscount);
   }, [appliedCoupon, serverDiscount]);
 
-  // ===== Handlery koszyka =====
+  /* ===== Handlery koszyka ===== */
   const addToCart = useCallback((product: CartItem, opts?: AddOpts) => {
     setCart((prev) => {
       const exists = prev.find((i) => i.slug === product.slug);
@@ -151,7 +169,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         ? prev.map((i) =>
             i.slug === product.slug ? { ...i, quantity: i.quantity + 1 } : i
           )
-        : [...prev, { ...product, quantity: 1 }];
+        : [...prev, { ...product, quantity: product.quantity ?? 1 }];
       return updated;
     });
     lastActionRef.current = "add";
@@ -190,7 +208,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     });
   }, [cart]);
 
-  // ===== Suma + koszty =====
+  /* ===== Suma + koszty ===== */
   const subtotal = useMemo(
     () => cart.reduce((s, i) => s + i.price * i.quantity, 0),
     [cart]
@@ -216,11 +234,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const total = useMemo(() => afterDiscount + shipping, [afterDiscount, shipping]);
 
-  // ===== walidacja po serwerze z łańcuchem fallbacków =====
-  async function validateViaServer(code: string, cartTotalZl: number, userId?: string) {
+  /* ===== Walidacja kuponu (z łańcuchem fallbacków) ===== */
+  async function validateViaServer(
+    code: string,
+    cartTotalZl: number,
+    userId?: string
+  ): Promise<{ data: ServerValidateResponse; source: "public" | "admin" | "local" }> {
     const cartTotalCents = Math.round(cartTotalZl * 100);
 
-    // 1) Publiczny endpoint (jeśli istnieje po Twojej stronie API)
+    // 1) Publiczny endpoint
     try {
       const r = await fetch(`${API_URL}/api/coupons/validate`, {
         method: "POST",
@@ -231,31 +253,24 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (r.ok) {
         const data = (await r.json()) as ServerValidateResponse;
-        return { data, source: "public" as const };
+        return { data, source: "public" };
       }
 
-      // 404/405 – przełączamy się na admin preview
       if (r.status === 404 || r.status === 405) {
         throw new Error("public-endpoint-missing");
       }
 
-      // inne błędy – przekaż informację
       const msg = await r.text().catch(() => "Validation failed");
       throw new Error(msg || "Validation failed");
     } catch (err: any) {
-      // przechodzimy do adminowego tylko dla brakującego public endpointu / braku sieci
-      if (
-        err?.message === "public-endpoint-missing" ||
-        err?.name === "TypeError" /* np. network */
-      ) {
-        // fall through → admin preview
+      if (err?.message === "public-endpoint-missing" || err?.name === "TypeError") {
+        // lecimy do admin preview
       } else {
-        // inny błąd — pokaż i przerwij
         throw err;
       }
     }
 
-    // 2) Adminowy preview-validate (działa tylko gdy user ma ADMIN cookie)
+    // 2) Admin preview (wymaga ADMIN cookie)
     try {
       const r = await fetch(`${API_URL}/api/admin/coupons/preview-validate`, {
         method: "POST",
@@ -266,57 +281,49 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (r.ok) {
         const data = (await r.json()) as ServerValidateResponse;
-        return { data, source: "admin" as const };
+        return { data, source: "admin" };
       }
 
-      // brak uprawnień – przejdziemy do fallbacku lokalnego
       if (r.status === 401 || r.status === 403) {
         throw new Error("admin-forbidden");
       }
 
-      // inne błędy – wyrzuć treść
       const msg = await r.text().catch(() => "Preview validation failed");
       throw new Error(msg || "Preview validation failed");
     } catch (err: any) {
       if (err?.message !== "admin-forbidden") {
-        // jeśli to nie brak uprawnień – przekaż błąd użytkownikowi
-        // (np. "Kupon wygasł", "Za niski koszyk", itp. – backend zwraca 400 z tekstem)
         throw err;
       }
-      // admin-forbidden -> spadamy do fallbacku lokalnego
+      // brak uprawnień → fallback lokalny
     }
 
-    // 3) Fallback lokalny – bez żądania do API
+    // 3) Fallback lokalny
     const discountZl = getDiscountValueFallback(cartTotalZl, code);
     const resp: ServerValidateResponse = {
       ok: true,
-      discount: discountZl * 100, // zwrot w groszach dla spójności typu
+      discount: discountZl * 100, // grosze
       code,
-      type: null as any,
-      amount: null as any,
+      type: null,
+      amount: null,
       percentage: null,
     };
-    return { data: resp, source: "local" as const };
+    return { data: resp, source: "local" };
   }
 
-  // ===== Kupony – API (grosze <-> zł) =====
-  async function applyCoupon(code: string, userId?: string) {
+  async function applyCoupon(code: string, userId?: string): Promise<ServerValidateResponse> {
     const clean = String(code || "").trim();
     if (!clean) throw new Error("Podaj kod");
 
     const { data, source } = await validateViaServer(clean, subtotal, userId);
 
-    // discount z backendu (lub lokalnego fallbacku) jest w GROSZACH
+    // discount z backendu (lub lokalnego fallbacku) jest w GROSZACH → konwersja do zł
     const discountZl = Math.round(Number(data.discount || 0) / 100);
 
-    // w UI przechowujemy w zł
     setAppliedCoupon(clean.toUpperCase());
     setServerDiscount(Math.min(discountZl, subtotal));
     setDiscountCode(clean.toUpperCase());
 
     if (source !== "public") {
-      // podpowiedź w devtools, dlaczego nie uderzyło w publiczny endpoint
-      // (nie wpływa na UI)
       console.debug(`[Cart] coupon validated via ${source} fallback`);
     }
 
@@ -326,14 +333,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const clearCoupon = useCallback(() => {
     setAppliedCoupon(null);
     setServerDiscount(0);
-    // discountCode (pole input) nie czyszczę – lepszy UX
+    // discountCode zostawiamy w input – lepszy UX
   }, []);
 
-  // ===== Drawer controls =====
+  /* ===== Drawer controls ===== */
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const toggleDrawer = useCallback(() => setDrawerOpen((v) => !v), []);
 
+  /* ===== Value ===== */
   const value: CartContextProps = useMemo(
     () => ({
       cart,
@@ -362,7 +370,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       SHIPPING_BASE,
       FREE_SHIPPING_FROM,
-      hasFreeShipping: (sum) => hasFreeShippingAfterDiscount(sum, appliedCoupon || discountCode),
+      hasFreeShipping: (sum) =>
+        hasFreeShippingAfterDiscount(sum, appliedCoupon || discountCode),
     }),
     [
       cart,
@@ -387,6 +396,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
-export function useCart() {
-  return useContext(CartContext) as CartContextProps;
+/* =========================
+   Hook
+   ========================= */
+export function useCart(): CartContextProps {
+  const ctx = useContext(CartContext);
+  if (!ctx) {
+    throw new Error("useCart must be used within <CartProvider>");
+  }
+  return ctx;
 }

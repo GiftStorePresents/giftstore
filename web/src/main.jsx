@@ -9,7 +9,7 @@ import reportWebVitals from "./reportWebVitals";
 import { HelmetProvider } from "react-helmet-async";
 import { AuthProvider } from "./context/AuthContext";
 import { CartProvider } from "./context/CartContext";
-import { WishlistProvider } from "./context/WishlistContext";
+import { WishlistProvider } from "./context/WishlistContext"; // ✅ bez .jsx
 import { ThemeProvider } from "./context/ThemeContext";
 
 // 🔎 Fuse.js – inicjalizacja datasetu wyszukiwarki
