@@ -5,6 +5,15 @@ import { useCart } from "../context/CartContext";
 import MagicFab from "./MagicFab";
 import { api, API_BASE } from "../api";
 
+/* ========================
+   Konfiguracja UI wyników
+   ======================== */
+const PAGE_SIZE = 8; // ile kart na „stronę” w wynikach
+const MAX_FETCH_PAGES = 120; // twarde ograniczenie pobierania
+
+/* ========================
+   Kroki pytań
+   ======================== */
 const stepQuestions = [
   {
     q: "Dla kogo szukasz prezentu?",
@@ -22,7 +31,7 @@ const stepQuestions = [
     options: [
       { txt: "🎂 Na urodziny", val: "na urodziny" },
       { txt: "💍 Rocznica", val: "rocznica" },
-      { txt: "🎄 Święta", val: "święta" },
+      { txt: "🎄 Święta", val: "swieta" },
       { txt: "❤️ Bez okazji", val: "bez okazji" },
     ],
   },
@@ -36,12 +45,15 @@ const stepQuestions = [
   },
 ];
 
-/* ===== helpers ===== */
+/* ========================
+   Helpery
+   ======================== */
 function normalizeImageUrl(url) {
   if (!url) return "";
   if (/^https?:\/\//i.test(url)) return url;
   return `${API_BASE}${url.startsWith("/") ? url : `/${url}`}`;
 }
+
 function getMinPriceFromVariants(variants) {
   if (!Array.isArray(variants) || variants.length === 0) return null;
   const cents = variants
@@ -50,6 +62,7 @@ function getMinPriceFromVariants(variants) {
   if (!cents.length) return null;
   return Math.min(...cents) / 100;
 }
+
 /** Mapowanie produktu z API -> lekki obiekt asystenta */
 function mapApiProduct(p) {
   if (!p || typeof p !== "object") return null;
@@ -57,6 +70,7 @@ function mapApiProduct(p) {
   const name = p.name || p.title || slug || "Produkt";
   const description =
     p.description || p.shortDescription || (p.brand ? `${p.brand}` : "") || "";
+
   const price =
     typeof p.price === "number"
       ? p.price
@@ -106,6 +120,9 @@ const OCCASION_KEYS = {
   "bez okazji": ["bez okazji", "just because", "anytime"],
 };
 
+/* ========================
+   Komponent
+   ======================== */
 export default function GiftAssistant({ setToast }) {
   const { addToCart } = useCart();
 
@@ -116,6 +133,11 @@ export default function GiftAssistant({ setToast }) {
   const [allProducts, setAllProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState("");
+
+  // sort ceny: null | "asc" | "desc"
+  const [priceSort, setPriceSort] = useState(null);
+  // paginacja w wynikach
+  const [visible, setVisible] = useState(PAGE_SIZE);
 
   const firstBtnRef = useRef(null);
 
@@ -128,10 +150,10 @@ export default function GiftAssistant({ setToast }) {
       try {
         const first = await api.products(1);
         const items = Array.isArray(first?.items) ? first.items : [];
-        const pages = typeof first?.pages === "number" ? first.pages : 1;
+        const pages = Math.max(1, Number(first?.pages) || 1);
 
         let acc = items.slice();
-        for (let p = 2; p <= pages && acc.length < 120; p++) {
+        for (let p = 2; p <= pages && acc.length < MAX_FETCH_PAGES; p++) {
           try {
             const res = await api.products(p);
             if (Array.isArray(res?.items)) acc = acc.concat(res.items);
@@ -166,6 +188,14 @@ export default function GiftAssistant({ setToast }) {
     };
   }, [open, step]);
 
+  // reset widoczności i sortu przy rozpoczęciu wyników
+  useEffect(() => {
+    if (step === stepQuestions.length) {
+      setVisible(PAGE_SIZE);
+      setPriceSort(null);
+    }
+  }, [step]);
+
   // Chat (wizual)
   const chat = [];
   if (choice.recipient) {
@@ -185,22 +215,16 @@ export default function GiftAssistant({ setToast }) {
   }
 
   /* ====== SCORING + SPRYTNE DOPASOWANIE ====== */
-  const { rankedResults, usedFallback } = useMemo(() => {
+  const baseRanked = useMemo(() => {
     const rec = norm(choice.recipient);
-    const occRaw = norm(choice.occasion);
-    const occ = occRaw === "na urodziny" ? "na urodziny" : occRaw; // ujednolicenie klucza
+    const occ = norm(choice.occasion);
     const budget = choice.budget;
 
-    // funkcje dopasowań
     const containsAny = (hay, arr) => arr.some((k) => hay.includes(norm(k)));
 
     const scored = (allProducts || []).map((p) => {
       const hay = norm(
-        [
-          p.name,
-          p.description,
-          ...(Array.isArray(p.tags) ? p.tags : []),
-        ].join(" ")
+        [p.name, p.description, ...(Array.isArray(p.tags) ? p.tags : [])].join(" ")
       );
 
       // recipient score
@@ -208,19 +232,18 @@ export default function GiftAssistant({ setToast }) {
       if (rec && rec !== "uniwersalny") {
         const keys = RECIPIENT_KEYS[rec] || [];
         if (keys.length && containsAny(hay, keys)) rScore = 3;
-        // dodatkowa heurystyka po słowie „dla niej/niego/dzieci/mamy/taty”
         else if (
           ["dla niej", "dla niego", "dla dzieci", "dla mamy", "dla taty"].some((k) => hay.includes(norm(k)))
         ) rScore = 2;
       } else {
-        rScore = 1; // lekkie punkty za brak wymogu (uniwersalne)
+        rScore = 1;
       }
 
       // occasion score
       let oScore = 0;
       if (occ) {
-        const key = occ === "swieta" ? "swieta" : occ; // map
-        const keys = OCCASION_KEYS[key] || OCCASION_KEYS[occ] || [];
+        const occKey = occ === "na urodziny" ? "na urodziny" : occ;
+        const keys = OCCASION_KEYS[occKey] || [];
         if (keys.length && containsAny(hay, keys)) oScore = 2;
         else if (hay.includes("prezent")) oScore = 1;
       } else {
@@ -228,50 +251,67 @@ export default function GiftAssistant({ setToast }) {
       }
 
       const priceOk = typeof p.price === "number" && p.price <= budget;
-      const bScore = priceOk ? 2 : 0;
+      const bScore = priceOk || budget === Infinity ? 2 : 0;
 
       const score = rScore + oScore + bScore;
-
       return { p, score, priceOk };
     });
 
-    // wstępne wyniki: wymagamy dopasowania budżetu (chyba że Infinity)
+    // wymagamy budżetu (o ile nie Infinity)
     let filtered = scored
-      .filter((x) => choice.budget === Infinity || x.priceOk)
+      .filter((x) => budget === Infinity || x.priceOk)
       .filter((x) => x.score > 0)
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
-        // w ramach tej samej punktacji preferuj tańsze
         return (a.p.price ?? 0) - (b.p.price ?? 0);
       })
       .map((x) => x.p);
 
     let fallback = false;
 
-    // Jeśli nadal pusto – rozluźnij: tylko budżet + ogólne „prezent”
     if (filtered.length === 0) {
       const byBudget = scored
-        .filter((x) => choice.budget === Infinity || x.priceOk)
+        .filter((x) => budget === Infinity || x.priceOk)
         .sort((a, b) => (a.p.price ?? 0) - (b.p.price ?? 0))
         .map((x) => x.p);
-      filtered = byBudget.slice(0, 24);
+      filtered = byBudget.slice(0, 48);
       fallback = true;
     }
-
-    // Jeśli nadal pusto (brak danych cenowych) – cokolwiek z listy
     if (filtered.length === 0) {
-      filtered = (allProducts || []).slice(0, 24);
+      filtered = (allProducts || []).slice(0, 48);
       fallback = true;
     }
 
-    return { rankedResults: filtered, usedFallback: fallback };
+    return { items: filtered, fallback };
   }, [allProducts, choice.recipient, choice.occasion, choice.budget]);
 
+  /* ====== Sort ceny + paginacja ====== */
+  const sortedItems = useMemo(() => {
+    const list = [...(baseRanked.items || [])];
+    if (priceSort === "asc") list.sort((a, b) => (a?.price ?? Infinity) - (b?.price ?? Infinity));
+    if (priceSort === "desc") list.sort((a, b) => (b?.price ?? -Infinity) - (a?.price ?? -Infinity));
+    return list;
+  }, [baseRanked.items, priceSort]);
+
+  const visibleItems = useMemo(() => sortedItems.slice(0, visible), [sortedItems, visible]);
+
+  /* ====== Akcje ====== */
   function reset() {
     setStep(0);
     setChoice({ recipient: "", occasion: "", budget: Infinity });
+    setPriceSort(null);
+    setVisible(PAGE_SIZE);
   }
 
+  function togglePriceSort(dir) {
+    setPriceSort((prev) => (prev === dir ? null : dir));
+  }
+
+  function showMore() {
+    setVisible((v) => v + PAGE_SIZE);
+  }
+
+  /* ====== Render ====== */
   return (
     <>
       <MagicFab
@@ -299,6 +339,7 @@ export default function GiftAssistant({ setToast }) {
               <span className="font-bold text-mainRed">Doradca Prezentowy</span>
             </div>
 
+            {/* Chat history + pytanie kroku */}
             <div className="flex-1 min-h-[100px] max-h-40 sm:max-h-48 overflow-y-auto mb-2">
               {chat.map((msg, idx) => (
                 <div key={idx} className={`my-1 flex ${msg.who === "user" ? "justify-end" : "justify-start"}`}>
@@ -321,6 +362,7 @@ export default function GiftAssistant({ setToast }) {
               )}
             </div>
 
+            {/* Kroki wyboru */}
             {step < stepQuestions.length && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {stepQuestions[step].options.map((opt, idx) => (
@@ -349,24 +391,59 @@ export default function GiftAssistant({ setToast }) {
               </div>
             )}
 
+            {/* Wyniki */}
             {step === stepQuestions.length && (
               <div className="mt-2 mb-1 overflow-y-auto">
-                <div className="font-bold text-mainRed mb-2 text-center">
-                  🎁 Propozycje prezentów:
-                </div>
+                <div className="font-bold text-mainRed mb-2 text-center">🎁 Propozycje prezentów:</div>
 
                 {loading && <div className="text-center text-gray-500 mb-3">Ładowanie…</div>}
                 {loadErr && <div className="text-center text-red-600 mb-3">{loadErr}</div>}
 
-                {!loading && !loadErr && rankedResults.length > 0 ? (
+                {!loading && !loadErr && baseRanked.items.length > 0 ? (
                   <>
-                    {usedFallback && (
+                    {baseRanked.fallback && (
                       <div className="text-xs text-gray-500 text-center mb-2">
-                        Pokażono najlepsze dopasowania wg budżetu i popularności (brak pełnych tagów w produktach).
+                        Pokażono najlepsze dopasowania wg budżetu/popularności (braki tagów w produktach).
                       </div>
                     )}
-                    {rankedResults.slice(0, 20).map((p, i) => (
-                      <div key={`${p.slug}-${i}`} className="bg-bgUltraLight rounded-xl p-3 mb-2 flex items-center gap-3">
+
+                    {/* Sterowanie: sort ceny */}
+                    <div className="flex items-center justify-end gap-2 mb-2">
+                      <span className="text-xs text-gray-500 mr-auto">
+                        Znaleziono: <b>{sortedItems.length}</b>
+                      </span>
+                      <button
+                        className={`px-3 py-1.5 rounded-lg border-2 ${
+                          priceSort === "asc"
+                            ? "bg-gold text-mainRed border-gold"
+                            : "bg-white border-gold hover:bg-gold/10"
+                        } font-semibold`}
+                        onClick={() => togglePriceSort("asc")}
+                        title="Sortuj: taniej"
+                        aria-label="Sortuj: taniej"
+                      >
+                        Taniej ↑
+                      </button>
+                      <button
+                        className={`px-3 py-1.5 rounded-lg border-2 ${
+                          priceSort === "desc"
+                            ? "bg-gold text-mainRed border-gold"
+                            : "bg-white border-gold hover:bg-gold/10"
+                        } font-semibold`}
+                        onClick={() => togglePriceSort("desc")}
+                        title="Sortuj: drożej"
+                        aria-label="Sortuj: drożej"
+                      >
+                        Drożej ↓
+                      </button>
+                    </div>
+
+                    {/* Lista wyników (karty) */}
+                    {visibleItems.map((p, i) => (
+                      <div
+                        key={`${p.slug}-${i}`}
+                        className="bg-bgUltraLight rounded-xl p-3 mb-2 flex items-center gap-3"
+                      >
                         <img
                           src={
                             p.image ||
@@ -394,8 +471,9 @@ export default function GiftAssistant({ setToast }) {
                         <button
                           className="bg-gold text-mainRed rounded-xl px-3 py-1.5 font-bold hover:bg-mainRed hover:text-gold transition"
                           onClick={() => {
-                            addToCart(p);
+                            addToCart({ ...p, quantity: 1 });
                             setToast && setToast("Dodano do koszyka!");
+                            try { window.dispatchEvent(new Event("cart:add")); } catch {}
                           }}
                           aria-label="Dodaj do koszyka"
                         >
@@ -403,10 +481,24 @@ export default function GiftAssistant({ setToast }) {
                         </button>
                       </div>
                     ))}
+
+                    {/* Paginacja: pokaż więcej */}
+                    {visible < sortedItems.length && (
+                      <div className="flex justify-center">
+                        <button
+                          onClick={showMore}
+                          className="mt-2 bg-gold text-mainRed px-6 py-2 rounded-xl font-bold hover:bg-mainRed hover:text-gold border-2 border-gold hover:border-mainRed transition"
+                        >
+                          Pokaż więcej
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Restart wyszukiwania */}
                     <div className="flex justify-center">
                       <button
                         onClick={reset}
-                        className="mt-3 bg-gold text-mainRed px-6 py-2 rounded-xl font-bold hover:bg-mainRed hover:text-gold border-2 border-gold hover:border-mainRed transition"
+                        className="mt-3 bg-white text-mainRed px-6 py-2 rounded-xl font-bold border-2 border-gold hover:bg-gold/10 transition"
                       >
                         Wyszukaj ponownie
                       </button>
@@ -415,9 +507,7 @@ export default function GiftAssistant({ setToast }) {
                 ) : (
                   !loading &&
                   !loadErr && (
-                    <div className="text-gray-400 text-center mb-2">
-                      Brak produktów do wyświetlenia.
-                    </div>
+                    <div className="text-gray-400 text-center mb-2">Brak produktów do wyświetlenia.</div>
                   )
                 )}
               </div>

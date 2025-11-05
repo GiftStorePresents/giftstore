@@ -1,5 +1,5 @@
 // src/pages/AdminOrdersPage.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { API_BASE } from "../api";
 
@@ -54,6 +54,19 @@ const STATUS_LABEL: Record<string, string> = {
   REFUNDED: "Zwrócone",
 };
 
+// delikatne kolory badge pod ciemny motyw admina
+const STATUS_COLORS: Record<string, { bg: string; color: string; border?: string }> = {
+  PENDING: { bg: "#2a2640", color: "#c5c1ff", border: "rgba(197,193,255,.25)" },
+  PAID: { bg: "#123425", color: "#b6f3d0", border: "rgba(182,243,208,.25)" },
+  PREPARING: { bg: "#243447", color: "#cbe7ff", border: "rgba(203,231,255,.25)" },
+  PACKING: { bg: "#2d2e1f", color: "#efe7b5", border: "rgba(239,231,181,.25)" },
+  READY_TO_SHIP: { bg: "#1d343d", color: "#b6e9f5", border: "rgba(182,233,245,.25)" },
+  SHIPPED: { bg: "#1f2d44", color: "#bcd9ff", border: "rgba(188,217,255,.25)" },
+  FULFILLED: { bg: "#152e26", color: "#bff0d7", border: "rgba(191,240,215,.25)" },
+  CANCELLED: { bg: "#3a1f24", color: "#ffdfe1", border: "rgba(255,223,225,.25)" },
+  REFUNDED: { bg: "#2e223f", color: "#dcc7ff", border: "rgba(220,199,255,.25)" },
+};
+
 export default function AdminOrdersPage() {
   const [sp, setSp] = useSearchParams();
   const [items, setItems] = useState<OrderRow[]>([]);
@@ -66,6 +79,8 @@ export default function AdminOrdersPage() {
   const q = sp.get("q") || "";
   const status = sp.get("status") || "";
   const limit = Math.max(1, Math.min(100, parseInt(sp.get("limit") || "20", 10)));
+
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const qs = useMemo(() => {
     const p = new URLSearchParams();
@@ -109,6 +124,7 @@ export default function AdminOrdersPage() {
       if (v === null || v === "") next.delete(k);
       else next.set(k, String(v));
     });
+    // reset strony na 1 przy każdej zmianie filtrów
     next.set("page", "1");
     setSp(next, { replace: true });
   };
@@ -116,22 +132,43 @@ export default function AdminOrdersPage() {
   const money = (cents: number) => (cents / 100).toFixed(2) + " zł";
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Zamówienia</h1>
+    <div className="admin-skin admin-page p-6 max-w-6xl mx-auto">
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Zamówienia</h1>
+        <Link to="/admin" className="admin-btn px-2 py-1">← Panel</Link>
+      </div>
 
-      <div className="flex flex-wrap items-center gap-2 mb-3">
-        <input
-          className="border rounded px-3 py-2"
-          placeholder="Szukaj (nr zam., email)"
-          defaultValue={q}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              updateParam({ q: (e.target as HTMLInputElement).value });
-            }
-          }}
-        />
+      {/* Filtry / akcje */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
+          <input
+            ref={searchRef}
+            className="admin-input"
+            placeholder="Szukaj (nr zam., email)"
+            defaultValue={q}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                updateParam({ q: (e.target as HTMLInputElement).value });
+              }
+            }}
+          />
+          {q ? (
+            <button
+              type="button"
+              className="admin-btn"
+              title="Wyczyść"
+              onClick={() => {
+                updateParam({ q: null });
+                if (searchRef.current) searchRef.current.value = "";
+              }}
+            >
+              Wyczyść
+            </button>
+          ) : null}
+        </div>
+
         <select
-          className="border rounded px-3 py-2"
+          className="admin-input"
           value={status}
           onChange={(e) => updateParam({ status: e.target.value })}
         >
@@ -141,17 +178,32 @@ export default function AdminOrdersPage() {
             </option>
           ))}
         </select>
+
+        <select
+          className="admin-input"
+          value={String(limit)}
+          onChange={(e) => updateParam({ limit: parseInt(e.target.value, 10) })}
+          title="Ilość na stronę"
+        >
+          {[10, 20, 30, 50, 100].map((n) => (
+            <option key={n} value={n}>
+              {n}/stronę
+            </option>
+          ))}
+        </select>
+
         <button
           type="button"
-          className="px-3 py-2 border rounded"
+          className="admin-btn"
           onClick={() => load()}
           disabled={loading}
+          title="Odśwież listę"
         >
-          Odśwież
+          {loading ? "Odświeżam…" : "Odśwież"}
         </button>
 
         <a
-          className="ml-auto px-3 py-2 border rounded hover:bg-gray-50"
+          className="ml-auto admin-btn"
           href={`${API_BASE}/api/admin/orders/export.csv`}
           target="_blank"
           rel="noreferrer"
@@ -161,88 +213,102 @@ export default function AdminOrdersPage() {
         </a>
       </div>
 
-      {err && (
-        <div className="mb-3 text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded">
-          {err}
-        </div>
-      )}
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm border">
-          <thead className="bg-gray-50">
+      {/* Tabela */}
+      <div className="admin-table-wrap">
+        <table className="admin-table text-sm">
+          <thead>
             <tr>
-              <th className="p-2 border text-left">Numer</th>
-              <th className="p-2 border text-left">Użytkownik</th>
-              <th className="p-2 border">Status</th>
-              <th className="p-2 border">Kwota</th>
-              <th className="p-2 border">Data</th>
-              <th className="p-2 border">Akcje</th>
+              <th className="text-left">Numer</th>
+              <th className="text-left">Użytkownik</th>
+              <th className="text-left">Status</th>
+              <th className="text-right">Kwota</th>
+              <th className="text-left">Data</th>
+              <th className="text-left">Akcje</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td className="p-3 border text-center" colSpan={6}>
+                <td className="px-3 py-4 text-center" colSpan={6}>
                   Ładowanie…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td className="p-3 border text-center" colSpan={6}>
+                <td className="px-3 py-4 text-center text-[var(--adm-muted)]" colSpan={6}>
                   Brak wyników.
                 </td>
               </tr>
             ) : (
-              items.map((o) => (
-                <tr key={o.id}>
-                  <td className="p-2 border font-mono">{o.number || o.id}</td>
-                  <td className="p-2 border">
-                    {o.user?.email || "—"}
-                    {o.user?.name ? ` (${o.user.name})` : ""}
-                  </td>
-                  <td className="p-2 border text-center">
-                    {STATUS_LABEL[o.status] || o.status}
-                  </td>
-                  <td className="p-2 border text-right">{money(o.totalCents)}</td>
-                  <td className="p-2 border whitespace-nowrap">
-                    {new Date(o.createdAt).toLocaleString()}
-                  </td>
-                  <td className="p-2 border">
-                    <Link
-                      to={`/admin/orders/${o.id}`}
-                      className="px-2 py-1 border rounded hover:bg-gray-50 inline-block"
-                    >
-                      Szczegóły
-                    </Link>
-                  </td>
-                </tr>
-              ))
+              items.map((o) => {
+                const c = STATUS_COLORS[o.status] || { bg: "#262b39", color: "#e9eef7" };
+                return (
+                  <tr key={o.id}>
+                    <td className="font-mono">
+                      {o.number || o.id}
+                    </td>
+                    <td>
+                      {o.user?.email || "—"}
+                      {o.user?.name ? (
+                        <span className="text-[var(--adm-muted)]"> ({o.user.name})</span>
+                      ) : null}
+                    </td>
+                    <td>
+                      <span
+                        className="admin-badge"
+                        style={{
+                          background: c.bg,
+                          color: c.color,
+                          borderColor: c.border || "transparent",
+                        }}
+                        title={o.status}
+                      >
+                        {STATUS_LABEL[o.status] || o.status}
+                      </span>
+                    </td>
+                    <td className="text-right whitespace-nowrap">{money(o.totalCents)}</td>
+                    <td className="whitespace-nowrap">
+                      {new Date(o.createdAt).toLocaleString()}
+                    </td>
+                    <td>
+                      <Link
+                        to={`/admin/orders/${o.id}`}
+                        className="admin-btn px-2 py-1 inline-block"
+                        title="Szczegóły zamówienia"
+                      >
+                        Szczegóły
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
+      {/* Paginacja */}
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
-          className="px-3 py-1 border rounded"
+          className={`admin-btn ${page <= 1 || loading ? "opacity-50 cursor-not-allowed" : ""}`}
           disabled={page <= 1 || loading}
           onClick={() => setSp({ q, status, limit: String(limit), page: String(page - 1) })}
         >
           ←
         </button>
-        <span>
+        <span className="text-sm text-[var(--adm-muted)]">
           Strona {page}/{pages}
         </span>
         <button
           type="button"
-          className="px-3 py-1 border rounded"
+          className={`admin-btn ${page >= pages || loading ? "opacity-50 cursor-not-allowed" : ""}`}
           disabled={page >= pages || loading}
           onClick={() => setSp({ q, status, limit: String(limit), page: String(page + 1) })}
         >
           →
         </button>
-        <span className="ml-auto text-sm text-gray-600">Łącznie: {total}</span>
+        <span className="ml-auto text-sm text-[var(--adm-muted)]">Łącznie: {total}</span>
       </div>
     </div>
   );

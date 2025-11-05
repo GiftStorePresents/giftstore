@@ -55,11 +55,10 @@ export default function RegulaminPage() {
       <section id="postanowienia-ogolne" className="mt-8 space-y-3">
         <h2 className="text-xl font-semibold">1. Postanowienia ogólne</h2>
         <p>
-          1.1. Właścicielem sklepu internetowego „Gift Store” jest <b>Gift Store Sp. z o.o.</b> (adres:
-          ul. Prezentowa 7, 00-000 Warszawa), NIP: 0000000000.
+          1.1. Właścicielem sklepu internetowego „Gift Store” jest <b>Gift Store Sp. z o.o.</b>
         </p>
         <p>
-          1.2. Kontakt: <a className="underline" href="mailto:support@giftstore.pl">support@giftstore.pl</a>, tel. +48 123 456 789.
+          1.2. Kontakt: <a className="underline" href="mailto:support@giftstore.pl">support@giftstore.pl</a>.
         </p>
         <p>
           1.3. Regulamin określa zasady korzystania ze sklepu, składania zamówień, realizacji dostaw,
@@ -71,8 +70,7 @@ export default function RegulaminPage() {
         <h2 className="text-xl font-semibold">2. Oferta i ceny</h2>
         <p>2.1. Ceny prezentowane w sklepie zawierają podatek VAT i podawane są w PLN.</p>
         <p>
-          2.2. Prezentowane zdjęcia produktów mają charakter poglądowy; różnice mogą wynikać z ustawień
-          wyświetlacza.
+          2.2. Prezentowane zdjęcia produktów mają charakter poglądowy oraz promocyjny.
         </p>
       </section>
 
@@ -80,7 +78,7 @@ export default function RegulaminPage() {
         <h2 className="text-xl font-semibold">3. Zamówienia i płatności</h2>
         <p>3.1. Zamówienia można składać 24/7 poprzez stronę internetową sklepu.</p>
         <p>
-          3.2. Dostępne metody płatności: szybkie płatności online, karta, BLIK, przelew tradycyjny,
+          3.2. Dostępne metody płatności: szybkie płatności online, karta, BLIK, płatność kryptowalutami (np. Bitcoin, Ethereum), przelew tradycyjny,
           pobranie (jeśli dostępne).
         </p>
         <p>3.3. Potwierdzenie przyjęcia zamówienia wysyłamy e-mailem.</p>
@@ -89,13 +87,11 @@ export default function RegulaminPage() {
       <section id="dostawa" className="mt-8 space-y-3">
         <h2 className="text-xl font-semibold">4. Dostawa</h2>
         <p>4.1. Dostawy realizujemy na terenie Polski poprzez współpracujących przewoźników.</p>
-        <p>4.2. Przewidywany czas dostawy wskazujemy na karcie produktu i w koszyku.</p>
       </section>
 
       <section id="odstapienie" className="mt-8 space-y-3">
         <h2 className="text-xl font-semibold">5. Odstąpienie od umowy</h2>
         <p>5.1. Konsument ma 14 dni na odstąpienie od umowy bez podania przyczyny.</p>
-        <p>5.2. Formularz zwrotu i szczegóły procedury udostępniamy w panelu zamówień.</p>
       </section>
 
       <section id="reklamacje" className="mt-8 space-y-3">

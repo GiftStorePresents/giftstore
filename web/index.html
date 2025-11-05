@@ -2,68 +2,118 @@
 <html lang="pl">
   <head>
     <meta charset="utf-8" />
-    <meta
-      http-equiv="X-UA-Compatible"
-      content="IE=edge"
-    />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1"
-    />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- 🌟 PODSTAWOWE META & PWA -->
     <meta name="theme-color" content="#D7263D" />
+    <link rel="manifest" href="/manifest.webmanifest?v=20251107" />
 
-    <!-- Favicons (ścieżki bez %PUBLIC_URL%) -->
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/logo32.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icons/logo192.png" />
-    <link rel="apple-touch-icon" href="/icons/logo192.png" />
+    <!-- 🧊 FAVICONS — NOWE ŚCIEŻKI -->
+    <link rel="apple-touch-icon" sizes="128x128" href="/icons/christmas_gift124na128.png" />
+    <!-- ICO -->
+    <link rel="icon" type="image/x-icon" sizes="32x32" href="/icons/christmas_gift31na32.ico" />
+    <link rel="icon" type="image/x-icon" sizes="48x48" href="/icons/christmas_gift46na48.ico" />
+    <link rel="icon" type="image/x-icon" sizes="64x64" href="/icons/christmas_gift_62na64.ico" />
+    <link rel="icon" type="image/x-icon" sizes="72x72" href="/icons/christmas_gift69na72.ico" />
+    <link rel="icon" type="image/x-icon" sizes="96x96" href="/icons/christmas_gift93na96.ico" />
+    <link rel="icon" type="image/x-icon" sizes="128x128" href="/icons/christmas_gift124na128.ico" />
+    <!-- PNG -->
+    <link rel="icon" type="image/png" sizes="64x64" href="/icons/christmas_gift62na64.png" />
+    <link rel="icon" type="image/png" sizes="72x72" href="/icons/christmas_gift69na72.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/icons/christmas_gift93na96.png" />
+    <link rel="icon" type="image/png" sizes="128x128" href="/icons/christmas_gift124na128.png" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/icons/christmas_gift248na256.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/christmas_gift497na512.png" />
 
-    <!-- SEO -->
+    <!-- 🧠 SEO -->
     <title>Gift Store – Wyjątkowe prezenty na każdą okazję</title>
-    <meta
-      name="description"
-      content="Gift Store – najlepsze pomysły na prezenty dla niej, dla niego, dla dzieci i na każdą okazję. Sklep internetowy z wyjątkowymi prezentami."
-    />
-    <meta
-      name="keywords"
-      content="prezenty, sklep z prezentami, dla niej, dla niego, dla dzieci, na urodziny, gift store"
-    />
+    <meta name="description" content="Gift Store – najlepsze pomysły na prezenty dla niej, dla niego, dla dzieci i na każdą okazję. Sklep internetowy z wyjątkowymi prezentami." />
+    <meta name="keywords" content="prezenty, sklep z prezentami, dla niej, dla niego, dla dzieci, na urodziny, gift store" />
     <meta name="author" content="Gift Store" />
     <link rel="canonical" href="https://twoja-domena.pl/" />
 
-    <!-- Open Graph -->
+    <!-- 📱 OPEN GRAPH -->
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="pl_PL" />
     <meta property="og:site_name" content="Gift Store" />
-    <meta property="og:title" content="Gift Store – Wyjątkowe prezenty" />
-    <meta
-      property="og:description"
-      content="Znajdź idealny prezent na każdą okazję! Dla niej, dla niego, dla dzieci i więcej."
-    />
-    <meta property="og:image" content="/og-image.jpg" />
+    <meta property="og:title" content="Gift Store – Wyjątkowe prezenty na każdą okazję" />
+    <meta property="og:description" content="Znajdź idealny prezent na każdą okazję! Dla niej, dla niego, dla dzieci i więcej." />
+    <meta property="og:image" content="/icons/christmas_gift497na512.png" />
     <meta property="og:url" content="https://twoja-domena.pl/" />
 
-    <!-- Twitter -->
+    <!-- 🐦 TWITTER -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Gift Store – Wyjątkowe prezenty" />
-    <meta
-      name="twitter:description"
-      content="Znajdź idealny prezent na każdą okazję! Dla niej, dla niego, dla dzieci i więcej."
-    />
-    <meta name="twitter:image" content="/og-image.jpg" />
+    <meta name="twitter:description" content="Znajdź idealny prezent na każdą okazję! Dla niej, dla niego, dla dzieci i więcej." />
+    <meta name="twitter:image" content="/icons/christmas_gift497na512.png" />
 
-    <!-- Manifest PWA -->
-    <link rel="manifest" href="/manifest.json" />
+    <!-- ⚙️ DODATKOWE -->
+    <meta name="robots" content="index, follow" />
+    <meta name="language" content="Polish" />
+    <meta name="application-name" content="Gift Store" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
-  <body>
+  <body class="min-h-screen antialiased transition-colors duration-500 bg-gift-romance dark:bg-aurora-dark bg-ellipses">
     <noscript>Musisz włączyć JavaScript, aby korzystać z tej aplikacji.</noscript>
     <div id="root"></div>
-
-    <!-- Hidden search input to fix "id/name" warning -->
-    <form style="display:none" aria-hidden="true">
-      <input type="text" id="hidden-search" name="search" />
-    </form>
-
-    <!-- Wejście do aplikacji (Vite) -->
+      <form style="display:none" aria-hidden="true">
+        <input type="text" id="hidden-search" name="search" />
+      </form>
     <script type="module" src="/src/main.jsx"></script>
   </body>
+<!--<body class="min-h-screen antialiased transition-colors duration-500 bg-gift-romance dark:bg-aurora-dark bg-ellipses">
+  <noscript>Musisz włączyć JavaScript, aby korzystać z tej aplikacji.</noscript>
+  <div id="root"></div>-->
+
+  <!-- Główny bundle React -->
+  <!--<script type="module" src="/src/main.jsx"></script>-->
+
+  <!-- 🔒 Izolacja modala InPost przed stylami motywu -->
+  <!--<style>
+    .easypack-modal {
+      z-index: 2147483000 !important;
+      position: fixed !important;
+      inset: 0 !important;
+      isolation: isolate;
+      color-scheme: light !important;
+    }
+    /* Zneutralizuj globalne reguły motywu */
+    .easypack-modal img,
+    .easypack-modal svg { max-width: none !important; height: auto !important; }
+    .easypack-modal .leaflet-container img { max-width: none !important; }
+    .easypack-modal button,
+    .easypack-modal .btn { background-image: none !important; }
+
+    /* ✅ fix na „sznurek” pinezek przy lupie */
+    .easypack-modal .search-group-btn .btn {
+      background-repeat: no-repeat !important;
+      background-position: center !important;
+      background-size: 16px auto !important;
+    }
+
+    /* Dekoracje tła strony nie przechwytują klików */
+    .bg-ellipses::before,
+    .bg-ellipses::after { pointer-events: none !important; }
+  </style>-->
+
+  <!-- InPost: init musi być ZANIM załaduje się SDK -->
+  <!--<script>
+    window.easyPackAsyncInit = function () {
+      window.easyPack.init({
+        defaultLocale: "pl",
+        mapType: "osm",
+        searchType: "easypack",
+        points: { types: ["parcel_locker", "pop"] }
+      });
+    };
+  </script>
+  <script src="https://geowidget.easypack24.net/js/sdk-for-javascript.js" defer></script>
+</body>-->
 </html>

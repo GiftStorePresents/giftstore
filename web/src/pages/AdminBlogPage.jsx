@@ -6,7 +6,11 @@ import Showdown from "showdown";
 
 /** Pomocnik: fetch + ładne błędy (zbiera JSON.reason lub body) */
 async function fetchJsonWithReason(url, init) {
-  const r = await fetch(url, init);
+  const r = await fetch(url, {
+    credentials: "include",
+    headers: { Accept: "application/json", ...(init && init.headers ? init.headers : {}) },
+    ...(init || {}),
+  });
   let bodyText = "";
   let json = null;
   try {
@@ -21,13 +25,13 @@ async function fetchJsonWithReason(url, init) {
   if (!r.ok) {
     let msg = `HTTP ${r.status}`;
     if (json?.reason) msg += ` – ${json.reason}`;
-    else if (bodyText) msg += ` – ${bodyText.slice(0, 160)}`;
+    else if (bodyText) msg += ` – ${String(bodyText).slice(0, 160)}`;
     const err = new Error(msg);
     err.status = r.status;
     err.payload = json || bodyText;
     throw err;
   }
-  return json;
+  return json ?? bodyText;
 }
 
 export default function AdminBlogPage() {
@@ -47,6 +51,7 @@ export default function AdminBlogPage() {
   const [tab, setTab] = useState("write"); // 'write' | 'preview'
   const [importBusy, setImportBusy] = useState(false);
   const fileInputRef = useRef(null);
+  const coverPickerRef = useRef(null);
 
   // ----- Markdown converter -----
   const converter = useMemo(
@@ -62,16 +67,42 @@ export default function AdminBlogPage() {
     []
   );
 
+  // ----- STYLOWANIE ZAKŁADEK: WRITE / PREVIEW (CZARNE) -----
+  const TabsStyle = () => (
+    <style>{`
+      .mde-header .mde-tabs { padding: 6px 8px; }
+      .mde-header .mde-tabs button {
+        background: #ffffff !important;
+        color: #000000 !important;
+        border: 1px solid rgba(0,0,0,0.12) !important;
+        border-radius: 8px !important;
+        padding: 6px 10px !important;
+        margin-right: 8px !important;
+        opacity: 1 !important;
+        box-shadow: 0 1px 0 rgba(0,0,0,0.06);
+      }
+      .mde-header .mde-tabs button:hover { background: #f4f6f8 !important; }
+      .mde-header .mde-tabs .selected {
+        background: #e9ecf1 !important;
+        border-color: rgba(0,0,0,0.2) !important;
+        color: #000 !important;
+      }
+      .mde-header .mde-tabs button * {
+        color: #000 !important;
+        fill: #000 !important;
+        stroke: #000 !important;
+        opacity: 1 !important;
+      }
+    `}</style>
+  );
+
   // ----- Helpers -----
   function update(k, v) {
     setForm((f) => ({ ...f, [k]: typeof v === "function" ? v(f[k], f) : v }));
   }
 
   async function load() {
-    const data = await fetchJsonWithReason("/api/admin/blog", {
-      credentials: "include",
-      headers: { Accept: "application/json" },
-    });
+    const data = await fetchJsonWithReason("/api/admin/blog", {});
     setList(Array.isArray(data) ? data : []);
   }
 
@@ -99,7 +130,6 @@ export default function AdminBlogPage() {
     fd.append("file", file);
     const j = await fetchJsonWithReason("/api/admin/upload?folder=blog", {
       method: "POST",
-      credentials: "include",
       body: fd,
     });
     if (!j?.url) throw new Error("Upload failed (brak url w odpowiedzi)");
@@ -128,8 +158,7 @@ export default function AdminBlogPage() {
     try {
       const res = await fetchJsonWithReason("/api/admin/blog/import?source=fake", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ publish: true, overwrite: true }),
       });
       setMsg(
@@ -172,12 +201,11 @@ export default function AdminBlogPage() {
       };
       await fetchJsonWithReason(url, {
         method,
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       await load();
-      setMsg(editing ? "Zapisano zmiany" : "Dodano wpis");
+      setMsg(editing ? "Zapisano zmiany ✅" : "Dodano wpis ✅");
       setEditing(null);
       setForm({
         title: "",
@@ -189,6 +217,7 @@ export default function AdminBlogPage() {
         published: false,
       });
       setTab("write");
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e2) {
       setMsg(
         "Błąd zapisu: " +
@@ -206,10 +235,7 @@ export default function AdminBlogPage() {
 
   async function edit(id) {
     try {
-      const a = await fetchJsonWithReason(`/api/admin/blog/${id}`, {
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
+      const a = await fetchJsonWithReason(`/api/admin/blog/${id}`, {});
       setEditing(id);
       setForm({
         title: a.title || "",
@@ -238,10 +264,7 @@ export default function AdminBlogPage() {
   async function del(id) {
     if (!confirm("Usunąć wpis?")) return;
     try {
-      await fetchJsonWithReason(`/api/admin/blog/${id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      await fetchJsonWithReason(`/api/admin/blog/${id}`, { method: "DELETE" });
       await load();
     } catch (e) {
       setMsg(
@@ -276,10 +299,12 @@ export default function AdminBlogPage() {
     if (!form.image) return;
     if (!confirm("Usunąć obrazek główny z tego wpisu?")) return;
     update("image", "");
-    setMsg("Usunięto obrazek główny z formularza. (Plik na serwerze pozostaje bez zmian)");
+    setMsg(
+      "Usunięto obrazek główny z formularza. (Plik na serwerze pozostaje bez zmian)"
+    );
   }
 
-  // ----- Treść – dodawanie/usuwanie obrazków -----
+  // ----- Treść – obrazki -----
   function openHiddenPicker() {
     fileInputRef.current?.click();
   }
@@ -300,7 +325,7 @@ export default function AdminBlogPage() {
   }
 
   function removeLastContentImage() {
-    const re = /!\[[^\]]*]\([^)]+\)/g; // dopasowuje ![alt](url)
+    const re = /!\[[^\]]*]\([^)]+\)/g;
     const matches = [...(form.content || "").matchAll(re)];
     if (matches.length === 0) {
       setMsg("W treści nie znaleziono obrazka do usunięcia.");
@@ -315,70 +340,93 @@ export default function AdminBlogPage() {
 
   // ----- Render -----
   return (
-    <section className="max-w-5xl mx-auto p-4">
-      <div className="flex items-center justify-between mb-4">
+    <section className="admin-skin admin-page max-w-6xl mx-auto p-6">
+      <TabsStyle />
+
+      {/* Nagłówek */}
+      <div className="mb-4 flex items-center gap-3 justify-between">
         <h1 className="text-2xl font-bold">Blog – admin</h1>
-        <button
-          type="button"
-          onClick={importFake}
-          disabled={importBusy}
-          className={`px-3 py-2 rounded border-2 ${
-            importBusy
-              ? "opacity-60 cursor-not-allowed border-gray-300"
-              : "border-gold hover:bg-gold"
-          } text-mainRed font-semibold`}
-          title="Zaimportuj wpisy z src/data/blog.ts"
-        >
-          {importBusy ? "Importuję…" : "Importuj mocki"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={importFake}
+            disabled={importBusy}
+            className="admin-btn"
+            title="Zaimportuj wpisy z src/data/blog.ts"
+          >
+            {importBusy ? "Importuję…" : "Importuj mocki"}
+          </button>
+
+          {msg && (
+            <span
+              className="admin-badge"
+              style={{
+                background: msg.toLowerCase().includes("błąd") ? "#3a1f24" : "#1f2d44",
+                color: msg.toLowerCase().includes("błąd") ? "#ffdfe1" : "#bcd9ff",
+              }}
+              title="Komunikat"
+            >
+              {msg}
+            </span>
+          )}
+        </div>
       </div>
 
-      {msg && <div className="mb-3 text-sm">{msg}</div>}
-
-      <form onSubmit={save} className="grid gap-3 mb-8">
+      {/* Formularz */}
+      <form onSubmit={save} className="grid gap-3 mb-8 admin-card rounded-lg p-4">
         <div className="grid sm:grid-cols-2 gap-3">
-          <input
-            className="border p-2 rounded"
-            placeholder="Tytuł"
-            value={form.title}
-            onChange={(e) => update("title", e.target.value)}
-            required
-          />
-          <input
-            className="border p-2 rounded"
-            placeholder="Slug (opcjonalnie)"
-            value={form.slug}
-            onChange={(e) => update("slug", e.target.value)}
-          />
+          <div>
+            <label className="text-xs text-[var(--adm-muted)]">Tytuł</label>
+            <input
+              className="admin-input w-full"
+              placeholder="Tytuł"
+              value={form.title}
+              onChange={(e) => update("title", e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className="text-xs text-[var(--adm-muted)]">Slug (opcjonalnie)</label>
+            <input
+              className="admin-input w-full"
+              placeholder="np. poradnik-prezentowy"
+              value={form.slug}
+              onChange={(e) => update("slug", e.target.value)}
+            />
+          </div>
         </div>
 
         <div className="grid sm:grid-cols-[1fr_auto_auto] gap-3 items-end">
-          <input
-            className="border p-2 rounded"
-            placeholder="Obrazek główny – URL"
-            value={form.image}
-            onChange={(e) => update("image", e.target.value)}
-          />
-          <label className="inline-flex items-center gap-2">
+          <div>
+            <label className="text-xs text-[var(--adm-muted)]">Obrazek główny – URL</label>
             <input
-              type="file"
-              accept="image/*"
-              onChange={onPickMainImage}
-              className="hidden"
-              id="pick-main-image"
+              className="admin-input w-full"
+              placeholder="https://… /uploads/blog/…"
+              value={form.image}
+              onChange={(e) => update("image", e.target.value)}
             />
-            <span
-              role="button"
-              onClick={() => document.getElementById("pick-main-image")?.click()}
-              className="px-3 py-2 rounded bg-mainRed text-white cursor-pointer"
-            >
-              Wgraj…
-            </span>
-          </label>
+          </div>
+
+          {/* Picker pliku (okładka) */}
+          <input
+            ref={coverPickerRef}
+            type="file"
+            accept="image/*"
+            onChange={onPickMainImage}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => coverPickerRef.current?.click()}
+            className="admin-btn"
+            title="Wgraj obrazek okładki"
+          >
+            Wgraj…
+          </button>
           <button
             type="button"
             onClick={removeMainImage}
-            className="px-3 py-2 rounded border text-red-600 border-red-300 hover:bg-red-50"
+            className="admin-btn danger"
             title="Usuń obrazek główny z formularza"
           >
             Usuń obrazek
@@ -395,37 +443,44 @@ export default function AdminBlogPage() {
             <button
               type="button"
               onClick={removeMainImage}
-              className="h-9 px-3 rounded border text-red-600 border-red-300 hover:bg-red-50"
+              className="admin-btn danger"
+              title="Usuń ten obraz z formularza"
             >
               Usuń ten obraz
             </button>
           </div>
         ) : null}
 
-        <input
-          className="border p-2 rounded"
-          placeholder="Tagi (po przecinku) – np. prezenty, dla-niej"
-          value={form.tags}
-          onChange={(e) => update("tags", e.target.value)}
-        />
+        <div>
+          <label className="text-xs text-[var(--adm-muted)]">Tagi (po przecinku)</label>
+          <input
+            className="admin-input w-full"
+            placeholder="np. prezenty, dla-niej"
+            value={form.tags}
+            onChange={(e) => update("tags", e.target.value)}
+          />
+        </div>
 
-        <textarea
-          className="border p-2 rounded"
-          placeholder="Lead / excerpt"
-          rows={3}
-          value={form.excerpt}
-          onChange={(e) => update("excerpt", e.target.value)}
-        />
+        <div>
+          <label className="text-xs text-[var(--adm-muted)]">Lead / excerpt</label>
+          <textarea
+            className="admin-input w-full"
+            placeholder="Krótki wstęp do wpisu…"
+            rows={3}
+            value={form.excerpt}
+            onChange={(e) => update("excerpt", e.target.value)}
+          />
+        </div>
 
         {/* -------- Editor Markdown -------- */}
-        <div className="rounded border">
-          <div className="flex items-center justify-between p-2 border-b">
+        <div className="rounded border border-[rgba(255,255,255,0.08)] overflow-hidden">
+          <div className="flex items-center justify-between p-2 border-b border-[rgba(255,255,255,0.08)]">
             <span className="font-semibold">Treść (Markdown)</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={openHiddenPicker}
-                className="px-3 py-1 rounded border"
+                className="admin-btn px-3 py-1"
                 title="Wstaw obrazek do treści"
               >
                 + Obraz do treści
@@ -433,10 +488,10 @@ export default function AdminBlogPage() {
               <button
                 type="button"
                 onClick={removeLastContentImage}
-                className="px-3 py-1 rounded border text-red-600 border-red-300 hover:bg-red-50"
+                className="admin-btn danger px-3 py-1"
                 title="Usuń ostatni obrazek (![...](...)) z treści"
               >
-                Usuń ostatni obraz z treści
+                Usuń ostatni obraz
               </button>
               <input
                 ref={fileInputRef}
@@ -453,9 +508,7 @@ export default function AdminBlogPage() {
             onChange={(v) => update("content", v)}
             selectedTab={tab}
             onTabChange={setTab}
-            generateMarkdownPreview={(md) =>
-              Promise.resolve(converter.makeHtml(md || ""))
-            }
+            generateMarkdownPreview={(md) => Promise.resolve(converter.makeHtml(md || ""))}
             minEditorHeight={240}
             maxEditorHeight={520}
             childProps={{
@@ -485,7 +538,7 @@ export default function AdminBlogPage() {
         </label>
 
         <div className="flex gap-2">
-          <button disabled={loading} className="px-4 py-2 rounded bg-mainRed text-white">
+          <button disabled={loading} className="admin-btn primary">
             {editing ? "Zapisz" : "Dodaj"}
           </button>
           {editing && (
@@ -504,7 +557,7 @@ export default function AdminBlogPage() {
                 });
                 setTab("write");
               }}
-              className="px-4 py-2 rounded border"
+              className="admin-btn"
             >
               Anuluj
             </button>
@@ -512,40 +565,56 @@ export default function AdminBlogPage() {
         </div>
       </form>
 
-      <table className="w-full text-sm border">
-        <thead>
-          <tr className="bg-gray-50">
-            <th className="p-2 text-left">Tytuł</th>
-            <th className="p-2">Slug</th>
-            <th className="p-2">Status</th>
-            <th className="p-2">Akcje</th>
-          </tr>
-        </thead>
-        <tbody>
-          {list.map((a) => (
-            <tr key={a.id} className="border-t">
-              <td className="p-2">{a.title}</td>
-              <td className="p-2">{a.slug}</td>
-              <td className="p-2">{a.published ? "opublikowany" : "draft"}</td>
-              <td className="p-2 flex gap-2 justify-center">
-                <button className="px-3 py-1 border rounded" onClick={() => edit(a.id)}>
-                  Edytuj
-                </button>
-                <button className="px-3 py-1 border rounded" onClick={() => del(a.id)}>
-                  Usuń
-                </button>
-              </td>
-            </tr>
-          ))}
-          {list.length === 0 && (
+      {/* Lista wpisów */}
+      <div className="admin-table-wrap">
+        <table className="admin-table text-sm">
+          <thead>
             <tr>
-              <td colSpan={4} className="p-4 text-center text-gray-500">
-                Brak wpisów.
-              </td>
+              <th className="text-left">Tytuł</th>
+              <th className="text-left">Slug</th>
+              <th className="text-left">Status</th>
+              <th className="text-left">Akcje</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {list.map((a) => (
+              <tr key={a.id}>
+                <td className="font-medium">{a.title}</td>
+                <td>{a.slug}</td>
+                <td>{a.published ? "opublikowany" : "draft"}</td>
+                <td>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="admin-btn px-2 py-1" onClick={() => edit(a.id)}>
+                      Edytuj
+                    </button>
+                    <button className="admin-btn danger px-2 py-1" onClick={() => del(a.id)}>
+                      Usuń
+                    </button>
+                    {a.slug && (
+                      <a
+                        className="admin-btn px-2 py-1"
+                        href={`/blog/${a.slug}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Podejrzyj publicznie"
+                      >
+                        Podgląd
+                      </a>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {list.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-3 py-6 text-center text-[var(--adm-muted)]">
+                Brak wpisów.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

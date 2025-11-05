@@ -10,18 +10,153 @@ import React, {
   ReactNode,
 } from "react";
 
-/* =========================
-   Konfiguracja i stałe
-   ========================= */
-export const SHIPPING_BASE = 15;          // zł
-export const FREE_SHIPPING_FROM = 200;    // zł
+/* =======================================================================================
+ *  CONFIG: thresholds, prices, API
+ * ======================================================================================= */
+export const SHIPPING_BASE = 15;        // zł – fallback kuriera
+export const FREE_SHIPPING_FROM = 200;  // zł – darmowa wysyłka od
+export const COD_SURCHARGE = 5;         // zł – dopłata „za pobraniem”
 
 const API_URL =
   ((import.meta as any)?.env?.VITE_API_URL as string) || "http://localhost:4000";
 
-/* =========================
-   Safe JSON utils
-   ========================= */
+/** Cennik dostaw (spójny z CartPage / CheckoutPage) */
+export const SHIPPING_COSTS = {
+  courier: {
+    dhl: 21.79,
+    dpd: 12.16,
+    ups: 23.79,
+    fedex: 17.7,
+    gls: 17.47,
+    inpost_kurier: 15.83,
+    pocztex: 12.66,
+  },
+  locker: {
+    inpost: 15.83,
+    dhl_box: 14.99,
+    pocztex_automat: 12.99,
+  },
+  point: {
+    orlen: 12.29,
+    dpd_pickup: 12.16,
+    pocztex_punkt: 12.66,
+  },
+  express: 17, // „Warszawa 24h”
+} as const;
+
+/* =======================================================================================
+ *  TYPES
+ * ======================================================================================= */
+export interface CartItem {
+  slug: string;
+  price: number;      // zł
+  quantity: number;
+  name?: string;
+  image?: string;
+}
+
+export type ShippingMethod = "standard" | "locker" | "point" | "express" | "pickup";
+export type ShippingCarrier =
+  | "dpd" | "dhl" | "ups" | "fedex" | "gls" | "inpost_kurier" | "pocztex"
+  | "inpost" | "dhl_box" | "pocztex_automat"
+  | "orlen" | "dpd_pickup" | "pocztex_punkt";
+
+type CourierCarrier = keyof typeof SHIPPING_COSTS.courier;
+type LockerCarrier  = keyof typeof SHIPPING_COSTS.locker;
+type PointCarrier   = keyof typeof SHIPPING_COSTS.point;
+type AnyCarrier = CourierCarrier | LockerCarrier | PointCarrier | "" | "express" | "pickup";
+
+export type PaymentMethod = "online" | "blik" | "cod";
+
+export interface Address {
+  addr1: string;
+  city: string;
+  zip: string;
+  country: string; // np. "PL"
+}
+export interface LockerSelection { code: string; name: string; }
+export interface PickupSelection { code: string; name: string; }
+
+export interface ShippingState {
+  method: ShippingMethod;
+  carrier: AnyCarrier;
+  locker: LockerSelection;
+  pickupPoint: PickupSelection;
+  address: Address;
+}
+
+export type ServerValidateResponse = {
+  ok: boolean;
+  discount: number; // GROSZE
+  code?: string;
+  type?: "PERCENT" | "FIXED" | null;
+  amount?: number | null;
+  percentage?: number | null;
+};
+
+type LastAction = "add" | "update" | "clear" | null;
+
+/* =======================================================================================
+ *  CONTEXT API
+ * ======================================================================================= */
+export interface CartContextProps {
+  // Items
+  cart: CartItem[];
+  addToCart: (product: CartItem, opts?: { openDrawer?: boolean }) => void;
+  removeFromCart: (slug: string) => void;
+  updateQuantity: (slug: string, quantity: number) => void;
+  clearCart: () => void;
+
+  // Coupon
+  discountCode: string;
+  setDiscountCode: (code: string) => void;
+  appliedCoupon: string | null;
+  discount: number; // zł
+  applyCoupon: (code: string, userId?: string) => Promise<ServerValidateResponse>;
+  clearCoupon: () => void;
+
+  // Shipping (nowy model)
+  shipping: ShippingState;
+  setShippingMethod: (method: ShippingMethod) => void;
+  setShippingCarrier: (carrier: AnyCarrier) => void;
+  setLocker: (sel: Partial<LockerSelection>) => void;
+  setPickupPoint: (sel: Partial<PickupSelection>) => void;
+  setAddress: (addr: Partial<Address>) => void;
+
+  // Payment
+  paymentMethod: PaymentMethod;
+  setPaymentMethod: (m: PaymentMethod) => void;
+
+  // Totals
+  subtotal: number;          // zł
+  afterDiscount: number;     // zł
+  shippingCost: number;      // zł
+  paymentSurcharge: number;  // zł
+  total: number;             // zł
+  hasFreeShipping: (sumAfterDiscountZl: number) => boolean;
+
+  // Drawer
+  drawerOpen: boolean;
+  openDrawer: () => void;
+  closeDrawer: () => void;
+  toggleDrawer: () => void;
+
+  // Aliasy kompatybilności (dla starszych komponentów)
+  prefShippingMethod: ShippingMethod;
+  setPrefShippingMethod: (m: ShippingMethod) => void;
+  prefShippingCarrier: ShippingCarrier | "";
+  setPrefShippingCarrier: (c: ShippingCarrier | "") => void;
+  prefPaymentMethod: PaymentMethod;
+  setPrefPaymentMethod: (p: PaymentMethod) => void;
+
+  // Stałe dla UI
+  SHIPPING_BASE: number;
+  FREE_SHIPPING_FROM: number;
+}
+
+/* =======================================================================================
+ *  safe localStorage
+ * ======================================================================================= */
 const safeGet = <T,>(key: string, fallback: T): T => {
   try {
     const raw = localStorage.getItem(key);
@@ -36,141 +171,94 @@ const safeSet = (key: string, val: unknown) => {
   } catch {}
 };
 
-/* =========================
-   Typy
-   ========================= */
-export interface CartItem {
-  slug: string;
-  name: string;
-  /** Cena w zł (liczby całkowite lub z groszami – projekt trzyma w zł) */
-  price: number;
-  quantity: number;
-}
+/* =======================================================================================
+ *  Helper: koszt dostawy
+ * ======================================================================================= */
+function computeShippingCost(s: ShippingState, afterDiscountZl: number): number {
+  if (s.method === "pickup") return 0;
+  if (afterDiscountZl >= FREE_SHIPPING_FROM) return 0;
 
-export interface AddOpts {
-  openDrawer?: boolean;
-}
-
-export type ServerValidateResponse = {
-  ok: boolean;
-  /** Rabat w groszach (format backendowy) */
-  discount: number;
-  code?: string;
-  type?: "PERCENT" | "FIXED" | null;
-  /** Kwota rabatu w groszach (dla FIXED) */
-  amount?: number | null;
-  /** Procent (dla PERCENT) */
-  percentage?: number | null;
-};
-
-export interface CartContextProps {
-  cart: CartItem[];
-  addToCart: (product: CartItem, opts?: AddOpts) => void;
-  removeFromCart: (slug: string) => void;
-  updateQuantity: (slug: string, quantity: number) => void;
-  clearCart: () => void;
-
-  drawerOpen: boolean;
-  openDrawer: () => void;
-  closeDrawer: () => void;
-  toggleDrawer: () => void;
-
-  discountCode: string;
-  setDiscountCode: (code: string) => void;
-  appliedCoupon: string | null;
-  /** Kwota rabatu w zł (już po konwersji z groszy) */
-  discount: number;
-  applyCoupon: (code: string, userId?: string) => Promise<ServerValidateResponse>;
-  clearCoupon: () => void;
-
-  /** Suma pozycji (zł, przed rabatem i dostawą) */
-  subtotal: number;
-  /** Koszt dostawy (zł) – 0 dla darmowej */
-  shipping: number;
-  /** Suma końcowa (zł) po rabacie i z dostawą */
-  total: number;
-  /** Suma po rabacie, przed dostawą (zł) */
-  afterDiscount: number;
-
-  SHIPPING_BASE: number;
-  FREE_SHIPPING_FROM: number;
-  hasFreeShipping: (sumAfterDiscountZl: number) => boolean;
-}
-
-/* =========================
-   Fallback kuponów (lokalnie)
-   ========================= */
-function getDiscountValueFallback(subtotalZl: number, code: string) {
-  if (!code) return 0;
-  const c = code.trim().toUpperCase();
-
-  // % kupony
-  if (c === "ALL10" || c === "GIFT10" || c === "PROMO10") {
-    return Math.round(subtotalZl * 0.1);
+  if (s.method === "express") return SHIPPING_COSTS.express;
+  if (s.method === "standard") {
+    const key = (s.carrier || "dpd") as CourierCarrier;
+    return SHIPPING_COSTS.courier[key] ?? SHIPPING_BASE;
   }
-
-  // Kwotowe kupony
-  if (c === "WELCOME5") return Math.min(5, subtotalZl); // 5 zł, ale nie więcej niż suma
-  if (c === "PROMO40") return Math.min(40, subtotalZl); // max 40 zł
-
-  // FREESHIP nie daje rabatu kwotowego (tylko dostawa = 0)
-  return 0;
+  if (s.method === "locker") {
+    const key = (s.carrier || "inpost") as LockerCarrier;
+    return SHIPPING_COSTS.locker[key] ?? SHIPPING_COSTS.locker.inpost;
+  }
+  if (s.method === "point") {
+    const key = (s.carrier || "orlen") as PointCarrier;
+    return SHIPPING_COSTS.point[key] ?? 12.99;
+  }
+  return SHIPPING_BASE;
 }
 
-function hasFreeShippingAfterDiscount(sumAfterDiscountZl: number, code: string | null) {
-  const c = (code || "").trim().toUpperCase();
-  return sumAfterDiscountZl >= FREE_SHIPPING_FROM || c === "FREESHIP";
-}
-
-/* =========================
-   Context
-   ========================= */
+/* =======================================================================================
+ *  CONTEXT
+ * ======================================================================================= */
 const CartContext = createContext<CartContextProps | null>(null);
 
-type LastAction = "add" | "update" | "clear" | null;
-
 export function CartProvider({ children }: { children: ReactNode }) {
+  /* -------- Items -------- */
   const [cart, setCart] = useState<CartItem[]>(() =>
     safeGet<CartItem[]>("cart:items", [])
   );
+
+  /* -------- Coupon -------- */
   const [discountCode, setDiscountCode] = useState<string>(() =>
     safeGet<string>("cart:discountCode", "")
   );
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(() =>
     safeGet<string | null>("cart:appliedCoupon", null)
   );
-  /** Rabat po walidacji serwerowej, przechowywany w zł (zgodnie z UI) */
+  /** Przechowywany w zł po konwersji z groszy */
   const [serverDiscount, setServerDiscount] = useState<number>(() =>
     safeGet<number>("cart:discountValue", 0)
   );
 
+  /* -------- Drawer -------- */
   const [drawerOpen, setDrawerOpen] = useState(false);
   const lastActionRef = useRef<LastAction>(null);
 
-  /* ===== Persist ===== */
-  useEffect(() => {
-    safeSet("cart:items", cart);
-  }, [cart]);
+  /* -------- Shipping -------- */
+  const [shipping, setShipping] = useState<ShippingState>(() =>
+    safeGet<ShippingState>("cart:shipping", {
+      method: "standard",
+      carrier: "dpd",
+      locker: { code: "", name: "" },
+      pickupPoint: { code: "", name: "" },
+      address: { addr1: "", city: "", zip: "", country: "PL" },
+    })
+  );
 
-  useEffect(() => {
-    safeSet("cart:discountCode", discountCode);
-  }, [discountCode]);
+  /* -------- Payment -------- */
+  const [paymentMethod, _setPaymentMethod] = useState<PaymentMethod>(() =>
+    safeGet<PaymentMethod>("cart:payment", "online")
+  );
 
+  /* -------- Persist -------- */
+  useEffect(() => safeSet("cart:items", cart), [cart]);
+  useEffect(() => safeSet("cart:discountCode", discountCode), [discountCode]);
   useEffect(() => {
     safeSet("cart:appliedCoupon", appliedCoupon);
     safeSet("cart:discountValue", serverDiscount);
   }, [appliedCoupon, serverDiscount]);
+  useEffect(() => safeSet("cart:shipping", shipping), [shipping]);
+  useEffect(() => safeSet("cart:payment", paymentMethod), [paymentMethod]);
 
-  /* ===== Handlery koszyka ===== */
-  const addToCart = useCallback((product: CartItem, opts?: AddOpts) => {
+  /* -------- Cart handlers -------- */
+  const addToCart = useCallback((product: CartItem, opts?: { openDrawer?: boolean }) => {
     setCart((prev) => {
-      const exists = prev.find((i) => i.slug === product.slug);
-      const updated = exists
-        ? prev.map((i) =>
-            i.slug === product.slug ? { ...i, quantity: i.quantity + 1 } : i
-          )
-        : [...prev, { ...product, quantity: product.quantity ?? 1 }];
-      return updated;
+      const found = prev.find((i) => i.slug === product.slug);
+      if (found) {
+        return prev.map((i) =>
+          i.slug === product.slug
+            ? { ...i, quantity: i.quantity + (product.quantity ?? 1) }
+            : i
+        );
+      }
+      return [...prev, { ...product, quantity: product.quantity ?? 1 }];
     });
     lastActionRef.current = "add";
     if (opts?.openDrawer) setDrawerOpen(true);
@@ -195,12 +283,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
     lastActionRef.current = "clear";
   }, []);
 
-  // Emituj event DOPIERO PO renderze
+  // Emit events after render (badges etc.)
   useEffect(() => {
     const act = lastActionRef.current;
     if (!act) return;
     lastActionRef.current = null;
-
     requestAnimationFrame(() => {
       if (act === "add") window.dispatchEvent(new Event("cart:add"));
       else if (act === "update") window.dispatchEvent(new Event("cart:update"));
@@ -208,170 +295,212 @@ export function CartProvider({ children }: { children: ReactNode }) {
     });
   }, [cart]);
 
-  /* ===== Suma + koszty ===== */
+  /* -------- Shipping mutators with EARLY RETURN guards -------- */
+  const setShippingMethod = useCallback((method: ShippingMethod) => {
+    setShipping((s) => {
+      if (s.method === method) return s; // nothing changes
+
+      let carrier = s.carrier;
+      const isCourier = ["dpd","dhl","ups","fedex","gls","inpost_kurier","pocztex"] as const;
+      const isLocker  = ["inpost","dhl_box","pocztex_automat"] as const;
+      const isPoint   = ["orlen","dpd_pickup","pocztex_punkt"] as const;
+
+      if (method === "standard" && !isCourier.includes(String(carrier) as any)) carrier = "dpd";
+      if (method === "locker"   && !isLocker.includes(String(carrier) as any))  carrier = "inpost";
+      if (method === "point"    && !isPoint.includes(String(carrier) as any))   carrier = "orlen";
+      if (method === "express" || method === "pickup") carrier = "";
+
+      return { ...s, method, carrier };
+    });
+  }, []);
+
+  const setShippingCarrier = useCallback((carrier: AnyCarrier) => {
+    setShipping((s) => (s.carrier === carrier ? s : { ...s, carrier }));
+  }, []);
+
+  const setAddress = useCallback((addr: Partial<Address>) => {
+    setShipping((s) => {
+      const next = { ...s.address, ...addr };
+      if (
+        next.addr1 === s.address.addr1 &&
+        next.city === s.address.city &&
+        next.zip === s.address.zip &&
+        next.country === s.address.country
+      ) return s; // no real change
+      return { ...s, address: next };
+    });
+  }, []);
+
+  const setLocker = useCallback((sel: Partial<LockerSelection>) => {
+    setShipping((s) => {
+      const next = { ...s.locker, ...sel };
+      if (next.code === s.locker.code && next.name === s.locker.name) return s;
+      return { ...s, locker: next };
+    });
+  }, []);
+
+  const setPickupPoint = useCallback((sel: Partial<PickupSelection>) => {
+    setShipping((s) => {
+      const next = { ...s.pickupPoint, ...sel };
+      if (next.code === s.pickupPoint.code && next.name === s.pickupPoint.name) return s;
+      return { ...s, pickupPoint: next };
+    });
+  }, []);
+
+  /* -------- Payment mutator with guard -------- */
+  const setPaymentMethod = useCallback((m: PaymentMethod) => {
+    _setPaymentMethod((prev) => (prev === m ? prev : m));
+  }, []);
+
+  /* -------- Totals -------- */
   const subtotal = useMemo(
     () => cart.reduce((s, i) => s + i.price * i.quantity, 0),
     [cart]
   );
 
-  const computedDiscount = useMemo(() => {
-    const byServer = Math.min(serverDiscount || 0, subtotal);
-    if (byServer > 0) return byServer;
-    return getDiscountValueFallback(subtotal, discountCode);
-  }, [serverDiscount, subtotal, discountCode]);
-
-  const afterDiscount = useMemo(
-    () => Math.max(0, subtotal - computedDiscount),
-    [subtotal, computedDiscount]
+  const discount = useMemo(
+    () => Math.min(serverDiscount || 0, subtotal),
+    [serverDiscount, subtotal]
   );
 
-  const shipping = useMemo(() => {
-    if (cart.length === 0) return 0;
-    return hasFreeShippingAfterDiscount(afterDiscount, appliedCoupon || discountCode)
-      ? 0
-      : SHIPPING_BASE;
-  }, [cart.length, afterDiscount, appliedCoupon, discountCode]);
+  const afterDiscount = useMemo(
+    () => Math.max(0, subtotal - discount),
+    [subtotal, discount]
+  );
 
-  const total = useMemo(() => afterDiscount + shipping, [afterDiscount, shipping]);
+  const hasFreeShipping = useCallback(
+    (sumAfterDiscountZl: number) => sumAfterDiscountZl >= FREE_SHIPPING_FROM,
+    []
+  );
 
-  /* ===== Walidacja kuponu (z łańcuchem fallbacków) ===== */
-  async function validateViaServer(
-    code: string,
-    cartTotalZl: number,
-    userId?: string
-  ): Promise<{ data: ServerValidateResponse; source: "public" | "admin" | "local" }> {
-    const cartTotalCents = Math.round(cartTotalZl * 100);
+  const shippingCost = useMemo(
+    () => (cart.length === 0 ? 0 : computeShippingCost(shipping, afterDiscount)),
+    [cart.length, shipping, afterDiscount]
+  );
 
-    // 1) Publiczny endpoint
+  const paymentSurcharge = useMemo(
+    () => (paymentMethod === "cod" ? COD_SURCHARGE : 0),
+    [paymentMethod]
+  );
+
+  const total = useMemo(
+    () => afterDiscount + shippingCost + paymentSurcharge,
+    [afterDiscount, shippingCost, paymentSurcharge]
+  );
+
+  /* -------- Coupon validate (public -> admin preview fallback) -------- */
+  async function applyCoupon(code: string, userId?: string): Promise<ServerValidateResponse> {
+    const clean = String(code || "").trim();
+    if (!clean) throw new Error("Podaj kod rabatowy");
+
+    const cartTotalCents = Math.round(subtotal * 100);
+
+    // 1) publiczny endpoint
     try {
       const r = await fetch(`${API_URL}/api/coupons/validate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ code, cartTotal: cartTotalCents, userId }),
+        body: JSON.stringify({ code: clean, cartTotal: cartTotalCents, userId }),
       });
-
-      if (r.ok) {
-        const data = (await r.json()) as ServerValidateResponse;
-        return { data, source: "public" };
+      if (!r.ok) {
+        const msg = await r.text().catch(() => "");
+        throw new Error(msg || `HTTP ${r.status}`);
       }
-
-      if (r.status === 404 || r.status === 405) {
-        throw new Error("public-endpoint-missing");
-      }
-
-      const msg = await r.text().catch(() => "Validation failed");
-      throw new Error(msg || "Validation failed");
-    } catch (err: any) {
-      if (err?.message === "public-endpoint-missing" || err?.name === "TypeError") {
-        // lecimy do admin preview
-      } else {
-        throw err;
-      }
-    }
-
-    // 2) Admin preview (wymaga ADMIN cookie)
-    try {
+      const data = (await r.json()) as ServerValidateResponse;
+      const discountZl = Math.round((data.discount || 0) / 100);
+      setAppliedCoupon(clean.toUpperCase());
+      setDiscountCode(clean.toUpperCase());
+      setServerDiscount(Math.min(discountZl, subtotal));
+      return data;
+    } catch {
+      // 2) admin preview fallback
       const r = await fetch(`${API_URL}/api/admin/coupons/preview-validate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ code, cartTotal: cartTotalCents, userId }),
+        body: JSON.stringify({ code: clean, cartTotal: cartTotalCents, userId }),
       });
-
-      if (r.ok) {
-        const data = (await r.json()) as ServerValidateResponse;
-        return { data, source: "admin" };
+      if (!r.ok) {
+        const msg = await r.text().catch(() => "");
+        throw new Error(msg || "Nieprawidłowy kod rabatowy.");
       }
-
-      if (r.status === 401 || r.status === 403) {
-        throw new Error("admin-forbidden");
-      }
-
-      const msg = await r.text().catch(() => "Preview validation failed");
-      throw new Error(msg || "Preview validation failed");
-    } catch (err: any) {
-      if (err?.message !== "admin-forbidden") {
-        throw err;
-      }
-      // brak uprawnień → fallback lokalny
+      const data = (await r.json()) as ServerValidateResponse;
+      const discountZl = Math.round((data.discount || 0) / 100);
+      setAppliedCoupon(clean.toUpperCase());
+      setDiscountCode(clean.toUpperCase());
+      setServerDiscount(Math.min(discountZl, subtotal));
+      return data;
     }
-
-    // 3) Fallback lokalny
-    const discountZl = getDiscountValueFallback(cartTotalZl, code);
-    const resp: ServerValidateResponse = {
-      ok: true,
-      discount: discountZl * 100, // grosze
-      code,
-      type: null,
-      amount: null,
-      percentage: null,
-    };
-    return { data: resp, source: "local" };
-  }
-
-  async function applyCoupon(code: string, userId?: string): Promise<ServerValidateResponse> {
-    const clean = String(code || "").trim();
-    if (!clean) throw new Error("Podaj kod");
-
-    const { data, source } = await validateViaServer(clean, subtotal, userId);
-
-    // discount z backendu (lub lokalnego fallbacku) jest w GROSZACH → konwersja do zł
-    const discountZl = Math.round(Number(data.discount || 0) / 100);
-
-    setAppliedCoupon(clean.toUpperCase());
-    setServerDiscount(Math.min(discountZl, subtotal));
-    setDiscountCode(clean.toUpperCase());
-
-    if (source !== "public") {
-      console.debug(`[Cart] coupon validated via ${source} fallback`);
-    }
-
-    return data;
   }
 
   const clearCoupon = useCallback(() => {
     setAppliedCoupon(null);
     setServerDiscount(0);
-    // discountCode zostawiamy w input – lepszy UX
+    // discountCode zostawiamy w input dla lepszego UX
   }, []);
 
-  /* ===== Drawer controls ===== */
-  const openDrawer = useCallback(() => setDrawerOpen(true), []);
+  /* -------- Drawer -------- */
+  const openDrawer  = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const toggleDrawer = useCallback(() => setDrawerOpen((v) => !v), []);
 
-  /* ===== Value ===== */
+  /* -------- VALUE -------- */
   const value: CartContextProps = useMemo(
     () => ({
+      // Items
       cart,
       addToCart,
       removeFromCart,
       updateQuantity,
       clearCart,
 
+      // Coupon
+      discountCode,
+      setDiscountCode,
+      appliedCoupon,
+      discount,
+      applyCoupon,
+      clearCoupon,
+
+      // Shipping
+      shipping,
+      setShippingMethod,
+      setShippingCarrier,
+      setLocker,
+      setPickupPoint,
+      setAddress,
+
+      // Payment
+      paymentMethod,
+      setPaymentMethod,
+
+      // Totals
+      subtotal,
+      afterDiscount,
+      shippingCost,
+      paymentSurcharge,
+      total,
+      hasFreeShipping,
+
+      // Drawer
       drawerOpen,
       openDrawer,
       closeDrawer,
       toggleDrawer,
 
-      discountCode,
-      setDiscountCode,
+      // Aliasy kompatybilności
+      prefShippingMethod: shipping.method,
+      setPrefShippingMethod: setShippingMethod,
+      prefShippingCarrier: (shipping.carrier as ShippingCarrier) || "",
+      setPrefShippingCarrier: (c: ShippingCarrier | "") =>
+        setShippingCarrier((c || "") as AnyCarrier),
+      prefPaymentMethod: paymentMethod,
+      setPrefPaymentMethod: setPaymentMethod,
 
-      appliedCoupon,
-      discount: computedDiscount,
-      applyCoupon,
-      clearCoupon,
-
-      subtotal,
-      shipping,
-      total,
-      afterDiscount,
-
+      // Stałe
       SHIPPING_BASE,
       FREE_SHIPPING_FROM,
-      hasFreeShipping: (sum) =>
-        hasFreeShippingAfterDiscount(sum, appliedCoupon || discountCode),
     }),
     [
       cart,
@@ -379,30 +508,38 @@ export function CartProvider({ children }: { children: ReactNode }) {
       removeFromCart,
       updateQuantity,
       clearCart,
+      discountCode,
+      appliedCoupon,
+      discount,
+      applyCoupon,
+      clearCoupon,
+      shipping,
+      setShippingMethod,
+      setShippingCarrier,
+      setLocker,
+      setPickupPoint,
+      setAddress,
+      paymentMethod,
+      subtotal,
+      afterDiscount,
+      shippingCost,
+      paymentSurcharge,
+      total,
       drawerOpen,
       openDrawer,
       closeDrawer,
       toggleDrawer,
-      discountCode,
-      appliedCoupon,
-      computedDiscount,
-      subtotal,
-      shipping,
-      total,
-      afterDiscount,
     ]
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
-/* =========================
-   Hook
-   ========================= */
+/* =======================================================================================
+ *  HOOK
+ * ======================================================================================= */
 export function useCart(): CartContextProps {
   const ctx = useContext(CartContext);
-  if (!ctx) {
-    throw new Error("useCart must be used within <CartProvider>");
-  }
+  if (!ctx) throw new Error("useCart must be used within <CartProvider>");
   return ctx;
 }

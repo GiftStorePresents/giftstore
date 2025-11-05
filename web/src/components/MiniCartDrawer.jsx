@@ -1,16 +1,22 @@
 // src/components/MiniCartDrawer.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { X } from "lucide-react";
+import { X, Truck, Package, MapPin, Zap, Hand } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
+import {
+  SHIPPING_COSTS,
+  SHIPPING_BASE,
+  FREE_SHIPPING_FROM,
+} from "../context/CartContext";
 
-// ===== Bezpieczne źródło obrazka (pełny URL + fallback) =====
+/* helpers */
 const SITE_ORIGIN =
   (typeof window !== "undefined" && window.location.origin) || "http://localhost:3000";
 const BASE_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_SITE_URL) ||
-  (typeof process !== "undefined" && (process.env.REACT_APP_SITE_URL || process.env.PUBLIC_URL)) ||
+  (typeof process !== "undefined" &&
+    (process.env.REACT_APP_SITE_URL || process.env.PUBLIC_URL)) ||
   SITE_ORIGIN;
 
 function resolveImg(src) {
@@ -20,147 +26,169 @@ function resolveImg(src) {
   const path = src.startsWith("/") ? src : `/${src}`;
   return `${base}${path}`;
 }
-// ===========================================================
-
-function formatEta(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toLocaleDateString("pl-PL", {
-    weekday: "short",
-    day: "2-digit",
-    month: "2-digit",
+const fmt = (n) =>
+  (Math.round(Number(n) * 100) / 100).toLocaleString("pl-PL", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
+
+/* mini UI */
+function SectionTitle({ icon: Icon, children }) {
+  return (
+    <div className="flex items-center gap-2 text-[13px] font-bold text-mainRed mb-2">
+      {Icon && <Icon size={15} className="opacity-80" />}
+      <span>{children}</span>
+    </div>
+  );
+}
+function RadioRow({ name, checked, onChange, left, right }) {
+  return (
+    <label className="group grid grid-cols-[18px_1fr_auto] items-center gap-2 rounded-lg border border-gray-200/80 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-1.5 hover:border-mainRed/50 transition cursor-pointer">
+      <input type="radio" name={name} checked={checked} onChange={onChange} className="peer sr-only" />
+      <span
+        className={[
+          "relative h-[16px] w-[16px] rounded-full border",
+          "border-gray-300 bg-white shadow-inner",
+          "dark:bg-transparent dark:border-white/30",
+          "peer-checked:border-mainRed peer-checked:shadow-[0_0_0_3px_rgba(215,38,61,0.18)]",
+          "after:absolute after:inset-[3px] after:rounded-full after:bg-mainRed after:scale-0 peer-checked:after:scale-100 after:transition-transform",
+        ].join(" ")}
+      />
+      <div className="text-[13px] text-gray-800 dark:text-gray-200">{left}</div>
+      <div className="ml-auto text-[13px] font-semibold text-mainRed tabular-nums">{right}</div>
+    </label>
+  );
+}
+function Pill({ children }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold
+      bg-emerald-100 text-emerald-900 border-emerald-300
+      dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-600/40">
+      {children}
+    </span>
+  );
 }
 
 export default function MiniCartDrawer({ open, onClose, setToast }) {
   const {
-    cart,
-    updateQuantity,
-    removeFromCart,
-    clearCart,
-    drawerOpen,
-    closeDrawer,
-    discountCode,
-    setDiscountCode,
-    subtotal,
-    discount,
-    shipping,
-    SHIPPING_BASE,
-    FREE_SHIPPING_FROM,
-    hasFreeShipping,
-
-    // ⬇ nowe z CartContext
-    applyCoupon,
-    appliedCoupon,
-    clearCoupon,
+    cart, updateQuantity, removeFromCart, clearCart,
+    drawerOpen, closeDrawer,
+    subtotal, discount, afterDiscount, shippingCost, hasFreeShipping,
+    discountCode, setDiscountCode, applyCoupon, appliedCoupon, clearCoupon,
+    shipping, setShippingMethod, setShippingCarrier,
+    paymentMethod, setPaymentMethod,
   } = useCart();
-
   const { user } = useAuth();
-  const [applying, setApplying] = useState(false);
 
+  const [applying, setApplying] = useState(false);
   const isOpen = typeof open === "boolean" ? open : !!drawerOpen;
 
-  // 🛠️ Poprawione handleClose — zawsze jest funkcją
-  const handleClose = useMemo(() => {
+  const drawerRef = useRef(null);
+  const closeBtnRef = useRef(null);
+  const lastFocusRef = useRef(null);
+
+  const handleCloseBase = useMemo(() => {
     if (typeof onClose === "function") return onClose;
     if (typeof closeDrawer === "function") return closeDrawer;
     return () => {};
   }, [onClose, closeDrawer]);
 
-  const drawerRef = useRef(null);
-  const closeBtnRef = useRef(null);
+  const handleClose = () => {
+    try { document.activeElement?.blur?.(); } catch {}
+    handleCloseBase();
+    setTimeout(() => { try { lastFocusRef.current?.focus?.(); } catch {} }, 50);
+  };
 
-  const shippingMethods = [
-    { id: "kurier", label: "Kurier (1–2 dni)", etaDays: 2, priceOverride: null },
-    { id: "paczkomat", label: "Paczkomat (2–3 dni)", etaDays: 3, priceOverride: 12 },
-    { id: "odbior", label: "Odbiór osobisty (1–2 dni)", etaDays: 2, priceOverride: 0 },
-  ];
-  const [selectedShipping, setSelectedShipping] = useState(shippingMethods[0].id);
-
-  const paymentMethods = [
-    { id: "blik", label: "BLIK" },
-    { id: "card", label: "Karta płatnicza" },
-    { id: "transfer", label: "Przelew online" },
-    { id: "cod", label: "Za pobraniem" },
-  ];
-  const [selectedPayment, setSelectedPayment] = useState(paymentMethods[0].id);
-
-  // ESC + blokada scrolla + focus trap
   useEffect(() => {
-    const onKeyDown = (e) => {
+    const el = drawerRef.current;
+    const onKey = (e) => {
       if (!isOpen) return;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        handleClose();
-      }
-      if (e.key === "Tab" && drawerRef.current) {
-        const focusables = drawerRef.current.querySelectorAll(
+      if (e.key === "Escape") { e.preventDefault(); handleClose(); }
+      if (e.key === "Tab" && el) {
+        const focusables = el.querySelectorAll(
           'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
         );
         if (!focusables.length) return;
         const first = focusables[0];
         const last = focusables[focusables.length - 1];
-        const isShift = e.shiftKey;
-
-        if (isShift && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!isShift && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       }
     };
-
+    const prevOverflow = document.body.style.overflow;
     if (isOpen) {
-      document.addEventListener("keydown", onKeyDown);
-      const prevOverflow = document.body.style.overflow;
+      lastFocusRef.current = document.activeElement;
       document.body.style.overflow = "hidden";
+      document.addEventListener("keydown", onKey);
+      el?.removeAttribute("aria-hidden");
+      el?.removeAttribute("inert");
       setTimeout(() => closeBtnRef.current?.focus(), 0);
-      return () => {
-        document.removeEventListener("keydown", onKeyDown);
-        document.body.style.overflow = prevOverflow;
-      };
+    } else {
+      el?.setAttribute("aria-hidden", "true");
+      el?.setAttribute("inert", "");
     }
-  }, [isOpen, handleClose]);
+    return () => { document.body.style.overflow = prevOverflow; document.removeEventListener("keydown", onKey); };
+  }, [isOpen]);
 
-  const afterDiscount = Math.max(0, subtotal - discount);
-  const selectedShippingDef =
-    shippingMethods.find((m) => m.id === selectedShipping) || shippingMethods[0];
-  const shippingLocal = hasFreeShipping(afterDiscount)
-    ? 0
-    : (selectedShippingDef.priceOverride ?? shipping);
+  /* opcje wysyłki */
+  const courierOptions = [
+    ["dpd", "DPD", SHIPPING_COSTS.courier.dpd],
+    ["dhl", "DHL", SHIPPING_COSTS.courier.dhl],
+    ["ups", "UPS", SHIPPING_COSTS.courier.ups],
+    ["fedex", "FedEx", SHIPPING_COSTS.courier.fedex],
+    ["gls", "GLS", SHIPPING_COSTS.courier.gls],
+    ["inpost_kurier", "InPost Kurier", SHIPPING_COSTS.courier.inpost_kurier],
+    ["pocztex", "Pocztex", SHIPPING_COSTS.courier.pocztex],
+  ];
+  const lockerOptions = [
+    ["inpost", "Paczkomat InPost", SHIPPING_COSTS.locker.inpost],
+    ["dhl_box", "DHL Box (automat)", SHIPPING_COSTS.locker.dhl_box],
+    ["pocztex_automat", "Pocztex Automat", SHIPPING_COSTS.locker.pocztex_automat],
+  ];
+  const pointOptions = [
+    ["orlen", "ORLEN Paczka", SHIPPING_COSTS.point.orlen],
+    ["dpd_pickup", "DPD Pickup", SHIPPING_COSTS.point.dpd_pickup],
+    ["pocztex_punkt", "Pocztex Punkt", SHIPPING_COSTS.point.pocztex_punkt],
+  ];
 
-  const totalLocal = afterDiscount + shippingLocal;
+  const free = hasFreeShipping(afterDiscount);
+  const localShippingCost = free ? 0 : shippingCost;
+  const totalLocal = Math.max(0, afterDiscount) + Math.max(0, localShippingCost);
+
+  // Fallbacki dla płatności
+  const payMethod = paymentMethod || "online";
+  const setPayMethod = typeof setPaymentMethod === "function" ? setPaymentMethod : () => {};
 
   return (
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 bg-black/40 transition-opacity duration-300 ${
+        className={`fixed inset-0 z-[9997] bg-black/45 dark:bg-black/60 backdrop-blur-[1px] transition-opacity duration-300 ${
           isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         }`}
         onClick={handleClose}
-        aria-hidden={!isOpen}
+        aria-hidden="true"
       />
 
       {/* Drawer */}
       <aside
         ref={drawerRef}
-        className={`fixed right-0 top-0 h-full w-[92vw] sm:w-[440px] bg-white shadow-2xl border-l-2 border-gold z-[60]
-        transition-transform duration-300 ${isOpen ? "translate-x-0" : "translate-x-full"} text-gray-800`}
-        aria-hidden={!isOpen}
-        aria-label="Mini koszyk"
+        className={`fixed right-0 top-0 z-[9998] h-full w-[92vw] sm:w-[480px]
+        bg-white text-gray-900 dark:bg-[#0f1424] dark:text-gray-50 shadow-2xl border-l border-gold
+        transition-transform duration-300 ${isOpen ? "translate-x-0" : "translate-x-full"}
+        overflow-y-auto overscroll-contain`}
         role="dialog"
         aria-modal="true"
+        aria-label="Mini koszyk"
       >
-        <div className="p-4 border-b">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-black/10 dark:border-white/10 sticky top-0 bg-inherit">
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-extrabold text-mainRed">Twój koszyk</h3>
             <button
               ref={closeBtnRef}
               onClick={handleClose}
-              className="p-2 rounded hover:bg-gray-100 text-mainRed"
+              className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-mainRed"
               aria-label="Zamknij koszyk"
             >
               <X />
@@ -168,6 +196,7 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
           </div>
         </div>
 
+        {/* Produkty */}
         {cart.length === 0 ? (
           <div className="p-6 text-center">
             <div className="text-mainRed font-bold mb-2">Koszyk jest pusty</div>
@@ -177,56 +206,41 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
           </div>
         ) : (
           <>
-            {/* Items */}
-            <div className="p-4 space-y-4 overflow-y-auto max-h-[40vh]">
+            <div className="px-5 py-4 space-y-4 overflow-y-auto max-h-[32vh] nice-scroll">
               {cart.map((item) => (
                 <div key={item.slug} className="flex gap-3 items-center">
                   <img
                     src={resolveImg(item.image)}
                     alt={item.name}
-                    className="w-16 h-16 rounded-lg object-cover"
+                    className="w-14 h-14 rounded-lg object-cover ring-1 ring-black/5 dark:ring-white/10"
                     loading="lazy"
-                    onError={(e) => {
-                      e.currentTarget.src = "/placeholder.png";
-                    }}
+                    onError={(e) => { e.currentTarget.src = "/placeholder.png"; }}
                   />
                   <div className="flex-1">
-                    <div className="font-bold text-mainRed">{item.name}</div>
-                    <div className="text-sm text-gray-600">{item.price} zł / szt.</div>
-
-                    {/* Ilość – jasne, z obrysem (widoczne w dark mode) */}
+                    <div className="font-semibold text-mainRed leading-tight text-[14px]">{item.name}</div>
+                    <div className="text-[12px] text-gray-600 dark:text-gray-300">
+                      {fmt(item.price)} zł / szt.
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
                       <button
                         onClick={() => updateQuantity(item.slug, item.quantity - 1)}
                         disabled={item.quantity <= 1}
-                        className="w-8 h-8 grid place-items-center rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-mainRed hover:text-white disabled:opacity-50"
+                        className="w-7 h-7 grid place-items-center rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-mainRed hover:text-white disabled:opacity-50 dark:bg:white/10 dark:text-gray-100 dark:border-white/20 dark:hover:bg-mainRed"
                         aria-label="Zmniejsz ilość"
-                      >
-                        −
-                      </button>
-
-                      <span className="w-8 h-8 grid place-items-center font-bold rounded-lg bg-white text-gray-900 border border-gray-300 select-none">
+                      >−</button>
+                      <span className="w-8 h-7 grid place-items-center font-bold rounded-lg bg-white text-gray-900 border border-gray-300 select-none dark:bg-white/10 dark:text-gray-100 dark:border-white/20">
                         {item.quantity}
                       </span>
-
                       <button
                         onClick={() => updateQuantity(item.slug, item.quantity + 1)}
-                        className="w-8 h-8 grid place-items-center rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-mainRed hover:text-white"
+                        className="w-7 h-7 grid place-items-center rounded-lg bg-white text-gray-900 border border-gray-300 hover:bg-mainRed hover:text-white dark:bg-white/10 dark:text-gray-100 dark:border-white/20 dark:hover:bg-mainRed"
                         aria-label="Zwiększ ilość"
-                      >
-                        +
-                      </button>
+                      >+</button>
                     </div>
                   </div>
-
                   <div className="text-right">
-                    <div className="font-extrabold text-gold">
-                      {item.price * item.quantity} zł
-                    </div>
-                    <button
-                      className="text-xs text-mainRed underline mt-1"
-                      onClick={() => removeFromCart(item.slug)}
-                    >
+                    <div className="font-extrabold text-gold text-[15px]">{fmt(item.price * item.quantity)} zł</div>
+                    <button className="text-[11px] text-mainRed underline mt-1" onClick={() => removeFromCart(item.slug)}>
                       Usuń
                     </button>
                   </div>
@@ -234,186 +248,223 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
               ))}
             </div>
 
-            {/* Kupon + Free shipping */}
-            <div className="px-4 pt-3 border-t">
+            {/* Kupon */}
+            <div className="px-5 pt-3 pb-3 border-t border-black/10 dark:border-white/10">
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={discountCode}
-                  onChange={(e) => setDiscountCode(e.target.value)}
+                  onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
                   placeholder="Kod rabatowy"
-                  className="flex-1 border rounded-lg px-3 py-2 bg-white text-gray-800 placeholder-gray-400"
+                  aria-label="Kod rabatowy"
+                  className="flex-1 px-3 py-2 rounded-xl bg-white placeholder-gray-400 outline-none border border-gray-300 focus:border-mainRed focus:ring-0 shadow-none dark:bg-white/10 dark:border-white/20 dark:placeholder-gray-400"
                 />
                 <button
                   disabled={applying}
-                  className="px-3 py-2 rounded-lg bg-gold text-mainRed font-bold hover:bg-mainRed hover:text-gold transition disabled:opacity-60"
+                  className="px-4 py-2 rounded-xl bg-mainRed text-white font-bold hover:bg-gold hover:text-mainRed transition disabled:opacity-60"
                   onClick={async () => {
-                    try {
-                      setApplying(true);
-                      await applyCoupon(discountCode, user?.id);
-                      setToast && setToast("Kod zastosowany ✅");
-                    } catch (e) {
-                      setToast && setToast(String(e?.message || e || "Nie udało się"));
-                    } finally {
-                      setApplying(false);
-                    }
+                    try { setApplying(true); await applyCoupon(discountCode, user?.id); setToast && setToast("Kod zastosowany ✅"); }
+                    catch (e) { setToast && setToast(String(e?.message || e || "Nie udało się")); }
+                    finally { setApplying(false); }
                   }}
                 >
                   {applying ? "…" : "Zastosuj"}
                 </button>
               </div>
 
-              {(appliedCoupon || discount > 0) && (
-                <div className="mt-2 flex items-center gap-2">
+              {(appliedCoupon || Number(discount) > 0) && (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
                   {appliedCoupon && (
-                    <span className="inline-flex items-center gap-2 text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200">
-                      Kupon: {appliedCoupon}
+                    <Pill>
+                      <span className="opacity-80">Kupon:</span>
+                      <span className="font-bold tracking-wide">{appliedCoupon}</span>
                       {clearCoupon && (
-                        <button
-                          className="ml-1 underline hover:no-underline"
-                          onClick={() => clearCoupon()}
-                          title="Usuń kupon"
-                        >
-                          usuń
-                        </button>
+                        <button onClick={() => clearCoupon()} title="Usuń kupon"
+                          className="underline decoration-1 underline-offset-2">usuń</button>
                       )}
-                    </span>
+                    </Pill>
                   )}
-                  {discount > 0 && (
-                    <span className="text-sm text-green-700">Rabat: −{discount} zł</span>
+                  {Number(discount) > 0 && (
+                    <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                      Rabat: −{fmt(discount)} zł
+                    </span>
                   )}
                 </div>
               )}
 
-              {hasFreeShipping(afterDiscount) ? (
-                <div className="text-sm text-green-700 mt-2">Darmowa wysyłka ✓</div>
+              {free ? (
+                <div className="text-sm mt-2 text-emerald-700 dark:text-emerald-300">Darmowa wysyłka ✓</div>
               ) : (
                 <>
-                  <div className="text-sm text-gray-600 mt-2">
-                    Wysyłka: {SHIPPING_BASE} zł (gratis od {FREE_SHIPPING_FROM} zł)
+                  <div className="text-sm text-gray-700 dark:text-gray-300 mt-2">
+                    Wysyłka: {fmt(SHIPPING_BASE)} zł (gratis od {fmt(FREE_SHIPPING_FROM)} zł)
                   </div>
                   <div className="mt-3">
-                    <div className="text-xs text-gray-600 mb-1">
-                      Brakuje{" "}
-                      <span className="font-bold">
-                        {Math.max(0, FREE_SHIPPING_FROM - afterDiscount)} zł
-                      </span>{" "}
-                      do darmowej wysyłki
+                    <div className="text-xs text-gray-600 dark:text-gray-300 mb-1">
+                      Brakuje <span className="font-bold">
+                        {fmt(Math.max(0, FREE_SHIPPING_FROM - afterDiscount))}
+                      </span> zł do darmowej wysyłki
                     </div>
-                    <div className="h-2 bg-gray-200 rounded">
-                      <div
-                        className="h-2 bg-gold rounded transition-all"
-                        style={{
-                          width: `${Math.min(
-                            100,
-                            (afterDiscount / FREE_SHIPPING_FROM) * 100
-                          )}%`,
-                        }}
-                      />
+                    <div className="h-2 rounded bg-gray-200 dark:bg-white/10">
+                      <div className="h-2 rounded bg-gold transition-all"
+                           style={{ width: `${Math.min(100, (afterDiscount / FREE_SHIPPING_FROM) * 100)}%` }} />
                     </div>
                   </div>
                 </>
               )}
             </div>
 
-            {/* Dostawa + Płatność */}
-            <div className="px-4 py-6 border-t mt-3 space-y-4">
-              <div>
-                <div className="text-sm font-bold text-mainRed mb-2">Dostawa</div>
-                <div className="space-y-2">
-                  {shippingMethods.map((m) => (
-                    <label key={m.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="shipping"
-                        value={m.id}
-                        checked={selectedShipping === m.id}
-                        onChange={() => setSelectedShipping(m.id)}
+            {/* Dostawa */}
+            <div className="px-5 py-4 border-t border-black/10 dark:border-white/10">
+              <SectionTitle icon={Truck}>Dostawa</SectionTitle>
+              <div className="max-h-[42vh] overflow-y-auto pr-1 -mr-1 nice-scroll space-y-3">
+                {/* Kurier */}
+                <div>
+                  <div className="text-[12px] font-semibold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                    <Package size={13} /> Kurier
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {courierOptions.map(([key, label, price]) => (
+                      <RadioRow
+                        key={key}
+                        name="ship"
+                        checked={shipping.method === "standard" && shipping.carrier === key}
+                        onChange={() => { setShippingMethod("standard"); setShippingCarrier(key); }}
+                        left={label}
+                        right={free ? "0 zł" : `${fmt(price)} zł`}
                       />
-                      <span className="text-sm">
-                        {m.label}{" "}
-                        <span className="text-gray-500">
-                          (dostawa ok. {formatEta(m.etaDays)})
-                        </span>
-                      </span>
-                      <span className="ml-auto text-sm font-bold text-mainRed">
-                        {hasFreeShipping(afterDiscount)
-                          ? "0 zł"
-                          : (m.priceOverride ?? shipping) === 0
-                          ? "0 zł"
-                          : `${m.priceOverride ?? shipping} zł`}
-                      </span>
-                    </label>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <div className="text-sm font-bold text-mainRed mb-2">Płatność</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {paymentMethods.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setSelectedPayment(p.id)}
-                      className={`px-3 py-2 rounded-xl border text-sm ${
-                        selectedPayment === p.id
-                          ? "border-gold bg-gold/20 text-mainRed font-bold"
-                          : "border-gray-200 hover:border-gold"
-                      }`}
-                      aria-pressed={selectedPayment === p.id}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
+                {/* Automat */}
+                <div>
+                  <div className="text-[12px] font-semibold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center gap-1">
+                    <MapPin size={13} /> Automat paczkowy
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {lockerOptions.map(([key, label, price]) => (
+                      <RadioRow
+                        key={key}
+                        name="ship"
+                        checked={shipping.method === "locker" && shipping.carrier === key}
+                        onChange={() => { setShippingMethod("locker"); setShippingCarrier(key); }}
+                        left={label}
+                        right={free ? "0 zł" : `${fmt(price)} zł`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Punkt */}
+                <div>
+                  <div className="text-[12px] font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                    Punkt odbioru
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {pointOptions.map(([key, label, price]) => (
+                      <RadioRow
+                        key={key}
+                        name="ship"
+                        checked={shipping.method === "point" && shipping.carrier === key}
+                        onChange={() => { setShippingMethod("point"); setShippingCarrier(key); }}
+                        left={label}
+                        right={free ? "0 zł" : `${fmt(price)} zł`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Express / Odbiór */}
+                <div className="grid grid-cols-1 gap-1.5">
+                  <RadioRow
+                    name="ship"
+                    checked={shipping.method === "express"}
+                    onChange={() => { setShippingMethod("express"); setShippingCarrier(""); }}
+                    left={<span className="inline-flex items-center gap-1"><Zap size={13}/>Kurier Warszawa (24h)</span>}
+                    right={free ? "0 zł" : `${fmt(SHIPPING_COSTS.express)} zł`}
+                  />
+                  <RadioRow
+                    name="ship"
+                    checked={shipping.method === "pickup"}
+                    onChange={() => { setShippingMethod("pickup"); setShippingCarrier(""); }}
+                    left={<span className="inline-flex items-center gap-1"><Hand size={13}/>Odbiór osobisty</span>}
+                    right={"0 zł"}
+                  />
+                  <div className="h-6" aria-hidden="true" />
                 </div>
               </div>
             </div>
 
-            {/* Podsumowanie */}
-            <div className="p-4 border-t bg-white sticky bottom-0">
-              <div className="flex justify-between text-sm text-gray-700">
-                <span>Produkty</span>
-                <span>{subtotal} zł</span>
+            {/* Płatność – większy odstęp u góry */}
+            <div className="px-5 pb-6 mt-4 pt-5 border-t border-black/10 dark:border-white/10">
+              <SectionTitle>Płatność</SectionTitle>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {[
+                  ["online", "Przelew online / karta"],
+                  ["blik", "BLIK"],
+                  ["cod", "Za pobraniem (+5 zł)"],
+                  ["crypto", "Krypto (USDT/BTC)"],   // <= NOWA OPCJA
+                ].map(([key, label]) => {
+                  const active = payMethod === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setPayMethod(key)}
+                      className={[
+                        "px-3 py-2 rounded-xl text-[13px] transition border",
+                        active
+                          ? "border-mainRed bg-mainRed/10 text-mainRed font-semibold"
+                          : "border-gray-300 hover:border-mainRed/60 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10",
+                      ].join(" ")}
+                      aria-pressed={active}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
-              {discount > 0 && (
-                <div className="flex justify-between text-sm text-green-700">
-                  <span>Rabat</span>
-                  <span>−{discount} zł</span>
+            </div>
+
+            {/* mały bufor nad sticky stopką */}
+            <div className="h-4" />
+
+            {/* Podsumowanie */}
+            <div className="p-5 border-t border-black/10 dark:border-white/10 bg-inherit sticky bottom-0">
+              <div className="flex justify-between text-sm text-gray-700 dark:text-gray-200">
+                <span>Produkty</span><span>{fmt(subtotal)} zł</span>
+              </div>
+              {Number(discount) > 0 && (
+                <div className="flex justify-between text-sm text-emerald-700 dark:text-emerald-300">
+                  <span>Rabat</span><span>−{fmt(discount)} zł</span>
                 </div>
               )}
-              <div className="flex justify-between text-sm text-gray-700">
-                <span>Wysyłka</span>
-                <span>{shippingLocal} zł</span>
+              <div className="flex justify-between text-sm text-gray-700 dark:text-gray-200">
+                <span>Wysyłka</span><span>{fmt(localShippingCost)} zł</span>
               </div>
               <div className="flex justify-between mt-2 text-lg font-extrabold text-mainRed">
-                <span>Suma</span>
-                <span>{totalLocal} zł</span>
+                <span>Suma</span><span>{fmt(totalLocal)} zł</span>
               </div>
 
-              {/* Przyciski akcji */}
               <div className="flex gap-2 mt-4">
                 <button
-                  className="btn-clear flex-1 bg-white border-2 border-gold text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-gold/20 transition"
+                  className="flex-1 bg-white dark:bg-white/10 border-2 border-mainRed/20 text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-mainRed/5 transition"
                   onClick={() => clearCart()}
                 >
                   Wyczyść
                 </button>
-
                 <Link
                   to="/cart"
                   onClick={handleClose}
-                  className="flex-1 flex items-center justify-center bg-white border-2 border-gray-200 text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-gray-100 transition"
+                  className="flex-1 flex items-center justify-center bg-white dark:bg-white/10 border-2 border-gray-200 dark:border-white/15 text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-gray-100 dark:hover:bg:white/15 transition"
                 >
                   Przejdź do koszyka
                 </Link>
-
-                {/* Do kasy – czerwony tekst, perfekcyjnie wycentrowany */}
                 <Link
                   to={{ pathname: "/checkout" }}
-                  state={{ shippingMethod: selectedShippingDef.id, paymentMethod: selectedPayment }}
                   onClick={handleClose}
-                  className="flex-1 flex items-center justify-center bg-gold font-bold px-4 py-2 rounded-xl hover:bg-mainRed hover:text-gold transition checkout-btn"
+                  className="checkout-btn flex-1 flex items-center justify-center bg-gold !text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-mainRed hover:text-gold transition"
                   aria-label="Przejdź do kasy"
                 >
                   Do kasy

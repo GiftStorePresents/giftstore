@@ -2,30 +2,12 @@
   "short_name": "Gift Store",
   "name": "Gift Store – Wyjątkowe prezenty",
   "icons": [
-    {
-      "src": "icons/logo192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/logo512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icons/logo192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "icons/logo512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
-    }
+    { "src": "/icons/christmas_gift62na64.png",   "sizes": "64x64",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/christmas_gift69na72.png",   "sizes": "72x72",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/christmas_gift93na96.png",   "sizes": "96x96",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/christmas_gift124na128.png", "sizes": "128x128", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/christmas_gift248na256.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/christmas_gift497na512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
   "start_url": "/",
   "scope": "/",

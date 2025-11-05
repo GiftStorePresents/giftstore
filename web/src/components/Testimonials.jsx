@@ -1,3 +1,4 @@
+// src/components/Testimonials.jsx
 const testimonials = [
   {
     name: "Agnieszka",
@@ -14,6 +15,11 @@ const testimonials = [
     text: "Wyjątkowy wybór prezentów, świetna obsługa klienta. 10/10.",
     avatar: "https://randomuser.me/api/portraits/women/43.jpg",
   },
+  {
+    name: "Michał",
+    text: "Świetna jakość produktów, szybka dostawa i bardzo miła obsługa. Zdecydowanie polecam!",
+    avatar: "https://randomuser.me/api/portraits/men/67.jpg",
+  },
 ];
 
 export default function Testimonials() {
@@ -27,16 +33,37 @@ export default function Testimonials() {
         {testimonials.map((t, i) => (
           <div
             key={i}
-            className="h-full bg-white dark:bg-surface rounded-2xl shadow-lg p-6 flex flex-col items-center border-t-4 border-gold hover:shadow-gold transition-all duration-300"
+            className={`
+              h-full
+              bg-white dark:bg-[#0c1021]
+              rounded-2xl shadow-lg
+              p-6 flex flex-col items-center justify-center text-center
+              border-t-4 border-gold
+              hover:shadow-[0_0_20px_rgba(255,215,0,0.4)]
+              transition-all duration-300
+              ${i === 3 ? "hidden sm:flex lg:hidden" : ""}
+            `}
           >
+            {/* Avatar */}
             <img
               src={t.avatar}
               alt={t.name}
               className="w-16 h-16 rounded-full border-4 border-gold mb-3 object-cover"
               loading="lazy"
             />
-            <p className="text-mainRed font-semibold mb-2">{t.name}</p>
-            <p className="text-gray-700 dark:text-muted text-center text-base italic line-clamp-4">
+            {/* Imię */}
+            <p className="text-gold font-semibold mb-2 text-lg drop-shadow-sm">
+              {t.name}
+            </p>
+            {/* Treść opinii */}
+            <p
+              className="
+                text-gray-700
+                dark:text-gray-200
+                text-center text-base italic leading-relaxed
+                max-w-[90%]
+              "
+            >
               “{t.text}”
             </p>
           </div>

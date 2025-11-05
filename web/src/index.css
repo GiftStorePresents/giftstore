@@ -1,6 +1,87 @@
+/* =======================================================================
+   index.css — Gift Store
+   Cel: warstwa bazowa Tailwind + drobne komponenty.
+   WAŻNE: zero globalnych 'background:' na body/html — nie blokujemy App.css.
+   ======================================================================= */
+
+/* Tailwind layers */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------- Base (bez tła!) ---------------- */
+@layer base {
+  html {
+    /* pozwala przeglądarce dobrać natywny wygląd formularzy pod motyw */
+    color-scheme: light dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* NIE USTAWIAĆ background:  */
+    margin: 0;
+    min-height: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Zapewnij 100% wysokości dla kontenera aplikacji */
+  html, body, #root { height: 100%; min-height: 100%; }
+
+  /* Domyślny focus dla dostępności (nie koliduje z Twoimi stylami) */
+  :focus-visible {
+    outline: 2px solid #FFD700;
+    outline-offset: 2px;
+  }
+}
+
+/* ---------------- Components ---------------- */
+@layer components {
+  /* Przycisk lupki w searchbarze (spójny z projektem) */
+  .btn-search {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-xl font-bold
+           border-2 transition border-gold bg-gold text-mainRed
+           hover:bg-mainRed hover:text-gold;
+    /* celowo: brak background-image — nie ingerujemy w ikonę */
+  }
+
+  /* (opcjonalnie) mniejszy wariant */
+  .btn-search-sm {
+    @apply px-3 py-2 text-sm rounded-lg;
+  }
+}
+
+/* ---------------- Utilities (drobiazgi globalne) ---------------- */
+
+/* Ukrycie pasków przewijania tam, gdzie potrzeba */
 .hide-scrollbar::-webkit-scrollbar { display: none; }
 .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Helper: zdejmuje kolor tła z wrapperów, gdy przypadkiem zostanie nadany utilsem */
+.bg-transparent-important { background: transparent !important; }
+
+/* Upewnij się, że nie nadpiszemy tła App.css w dark/light
+   (czasem biblioteki dorzucają body:bg-*) */
+
+:root[data-theme="dark"] body,
+html.dark body {
+  background-color: transparent !important;
+}
+
+/* --- Swiper: nie obcinaj slajdów i daj zapas na dół --- */
+/*.bestseller-swiper,
+.bestseller-swiper .swiper-wrapper {
+  overflow: visible !important;
+}
+
+.bestseller-swiper .swiper-slide {
+  height: auto !important;         *//* karta ustali wysokość */
+  /*padding-bottom: 2.5rem;          *//* ≈ 40px zapasu na przycisk/cień */
+/*}
+
+@media (min-width: 768px) {
+  .bestseller-swiper .swiper-slide {
+    padding-bottom: 3.5rem;       */ /* ≈ 56px na większych ekranach */
+ /* }
+}*/

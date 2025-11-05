@@ -1,5 +1,5 @@
 // api/src/server.ts
-import express, { type Request, type Response, type NextFunction } from "express";
+import express, { type Request, type Response, type NextFunction, type RequestHandler } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
@@ -10,20 +10,21 @@ import jwt from "jsonwebtoken";
 import pino from "pino";
 import pinoHttp from "pino-http";
 import { nanoid } from "nanoid";
-import cron from "node-cron";
+import { randomBytes } from "node:crypto";
 import { prisma } from "./lib/prisma";
-
-// --- Konfiguracja środowiska (nasza warstwa) ---
 import { env } from "./config/env";
+import multer from "multer"; // ⬅️ NEW
 
-// -------- Routers (public) --------
-import { products } from "./routes/products";
+// ── Routers (public)
+import products from "./routes/products";
 import { cart } from "./routes/cart";
 import wishlist from "./routes/wishlist";
-import coupons from "./routes/coupons"; // POST /api/coupons/validate
-import blog from "./routes/blog";
+import coupons from "./routes/coupons";
+import blogPublicRouter from "./routes/blog.public";
+// ⭐ PUBLIC: categories
+import publicCategoriesRouter from "./routes/publicCategories";
 
-// -------- Auth --------
+// ── Auth
 import { auth } from "./routes/auth";
 import authGoogle from "./routes/authGoogle";
 import authApple from "./routes/authApple";
@@ -31,131 +32,121 @@ import authMagic from "./routes/authMagic";
 import authEmailChange from "./routes/authEmailChange";
 import auth2fa from "./routes/auth2fa";
 
-// ✅ Załaduj strategie OAuth PRZED passport.initialize() i montowaniem routerów
-import "./lib/passport";       // GoogleStrategy (rejestruje się warunkowo na podstawie env)
-import "./lib/passportApple";  // AppleStrategy (rejestruje się warunkowo na podstawie env)
+// OAuth strategies
+import "./lib/passport";
+import "./lib/passportApple";
 
-// -------- Admin --------
+// ── Admin
+import adminCategories from "./routes/adminCategories";
 import admin from "./routes/admin";
 import adminUsers from "./routes/adminUsers";
-import adminProducts from "./routes/adminProducts";
-import adminProductMedia from "./routes/adminProductMedia";
-import adminSeed from "./routes/admin.seed";
-import adminProductsMaintenance from "./routes/adminProductsMaintenance";
-import ordersAdmin from "./routes/adminOrders"; // /api/admin/orders
+import ordersAdmin from "./routes/adminOrders";
 import adminBlog from "./routes/adminBlog";
 import adminUpload from "./routes/adminUpload";
 import adminCoupons from "./routes/adminCoupons";
+import adminSeedRouter from "./routes/admin.seed";
+import adminHero from "./routes/adminHero"; // (admin + public)
 
-// -------- Public checkout --------
-import publicOrders from "./routes/publicOrders"; // /api/orders
+// ⭐ NEW: Admin Products & Product Media
+import adminProducts from "./routes/adminProducts";
+import adminProductMedia from "./routes/adminProductMedia";
+
+// ── Orders (public)
+import publicOrders from "./routes/publicOrders";
 import myOrders from "./routes/myOrders";
 
-// -------- Payments (Stripe) --------
+// ── Payments (Stripe)
 import paymentsStripe, { stripeWebhook } from "./routes/paymentsStripe";
 
+// ── CSRF
 import { ensureCsrfCookie, requireCsrf } from "./middleware/csrf";
 
-// -------- Sitemaps/robots helpers --------
+// ── Sitemaps/robots
 import {
   buildSitemapIndex,
   buildUrlset,
-  sendXmlCached, // ETag + Cache-Control + 304
+  sendXmlCached,
   type SimpleEntry,
   chunk,
 } from "./utils/sitemap";
 import { getProductRows, getCategoryRows, getArticleRows } from "./services/sitemapData";
 
-// -------- Coupons auto-import helpers --------
-import { readPrismaSeedFile, parseSeedCoupons } from "./utils/seedCoupons";
-import { ensureCoupon } from "./utils/ensureCoupon";
+// ── NEW: notify
+import notifyRouter from "./routes/notify";
 
-// ---------------------------------------------------------------------
-// Inicjalizacja aplikacji
-// ---------------------------------------------------------------------
+// ⭐️ Admin Logs (z katalogu lib)
+import adminLogRouter from "./lib/adminLog";
+
+// ───────────────────────────────────────────────────────────────────────────────
+// App init
+// ───────────────────────────────────────────────────────────────────────────────
 const app = express();
-
-// ufamy proxy (X-Forwarded-*) – potrzebne do poprawnego IP/CORS za reverse proxy
+app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.set("etag", false);
 
-// ---------------------------------------------------------------------
-// Security headers
-// ---------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// Security headers (łagodna CSP pod obrazki zewnętrzne)
+// ───────────────────────────────────────────────────────────────────────────────
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    // CSP ustawiamy niżej ręcznie nagłówkiem
     contentSecurityPolicy: false,
   })
 );
 
-// --- Content-Security-Policy (kontrola ręczna) ---
-app.use((req, res, next) => {
+// ✅ ZMIENIONA SEKCJA CSP — dodane domeny InPost/OSM + worker/frame
+app.use((req: Request, res: Response, next: NextFunction) => {
   const connectSrc = [
     "'self'",
-    env.IS_PROD ? null : "ws:", // Vite HMR w dev
     "https://geowidget.easypack24.net",
+    "https://api-pl-points.easypack24.net",
     "https://nominatim.openstreetmap.org",
-  ]
-    .filter(Boolean)
-    .join(" ");
+    "https://tiles.openstreetmap.org",
+  ].join(" ");
+
+  const imgSrc = ["*", "data:", "blob:"].join(" ");
 
   const csp =
     `connect-src ${connectSrc}; ` +
     `script-src 'self' https://geowidget.easypack24.net https://unpkg.com; ` +
     `style-src 'self' 'unsafe-inline' https://geowidget.easypack24.net https://unpkg.com; ` +
-    `img-src * data:`;
+    `img-src ${imgSrc}; ` +
+    `worker-src blob:; ` +
+    `frame-src https://geowidget.easypack24.net;`;
 
   res.setHeader("Content-Security-Policy", csp);
   next();
 });
 
-// ---------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────────
 // CORS
-// ---------------------------------------------------------------------
-const allowedOrigins = new Set<string>([
-  env.SITE_URL.replace(/\/+$/, ""),
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:4173",
-]);
+// ───────────────────────────────────────────────────────────────────────────────
+const SITE_URL = env.SITE_URL.replace(/\/+$/, "");
+const API_URL = (process.env.API_URL || "").replace(/\/+$/, "");
+
+const allowedOrigins = new Set<string>([SITE_URL, API_URL].filter(Boolean));
+if (!env.IS_PROD) {
+  ["http://localhost:3000", "http://localhost:4000", "http://localhost:5173"].forEach((o) => allowedOrigins.add(o));
+}
 
 const corsConfig: cors.CorsOptions = {
-  origin(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.has(origin)) return callback(null, true);
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.has(origin)) return cb(null, true);
+    return cb(new Error(`CORS blocked for origin: ${origin}`));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-CSRF-Token",
-    "x-csrf-token",
-    "X-Requested-With",
-    "Stripe-Signature",
-    "x-seo-ping-token",
-    "X-Dev-User-Id",
-    "X-Dev-Admin",
-  ],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "x-csrf-token", "X-Requested-With", "Stripe-Signature", "x-seo-ping-token"],
 };
 app.use(cors(corsConfig));
 app.options("*", cors(corsConfig));
 
-// ---------------------------------------------------------------------
-// Logger
-// ---------------------------------------------------------------------
-const logger =
-  env.IS_PROD
-    ? pino({ level: process.env.LOG_LEVEL || "info" })
-    : pino({
-        level: process.env.LOG_LEVEL || "info",
-        transport: { target: "pino-pretty", options: { translateTime: "SYS:standard" } },
-      });
+// ───────────────────────────────────────────────────────────────────────────────
+/** Logger */
+// ───────────────────────────────────────────────────────────────────────────────
+const logger = pino({ level: process.env.LOG_LEVEL || "info" });
 
 app.use(
   pinoHttp({
@@ -183,9 +174,9 @@ app.use(
   })
 );
 
-// ---------------------------------------------------------------------
-// Statyki /uploads i /public
-// ---------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// Statics (UPLOADS + PUBLIC)
+// ───────────────────────────────────────────────────────────────────────────────
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -213,16 +204,15 @@ if (fs.existsSync(publicDir)) {
       setHeaders: (res, filePath) => {
         if (filePath.endsWith(".xml")) res.setHeader("Content-Type", "application/xml; charset=utf-8");
         if (filePath.endsWith(".txt")) res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        if (filePath.endsWith(".webmanifest"))
-          res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+        if (filePath.endsWith(".webmanifest")) res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
       },
     })
   );
 }
 
-// ---------------------------------------------------------------------
-// Anti-cache dla /api
-// ---------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// Anti-cache for /api
+// ───────────────────────────────────────────────────────────────────────────────
 app.use("/api", (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
@@ -230,74 +220,58 @@ app.use("/api", (_req, res, next) => {
   next();
 });
 
-// ---------------------------------------------------------------------
-// Stripe webhook: RAW body, zanim json parsers
-// ---------------------------------------------------------------------
-app.post(
-  "/api/payments/stripe/webhook",
-  express.raw({ type: "application/json" }),
-  (req: Request, res: Response) => stripeWebhook(req, res)
+// ───────────────────────────────────────────────────────────────────────────────
+// Stripe webhook – RAW (musi być PRZED parserami)
+// ───────────────────────────────────────────────────────────────────────────────
+app.post("/api/payments/stripe/webhook", express.raw({ type: "application/json" }), (req: Request, res: Response) =>
+  stripeWebhook(req, res)
 );
 
-// ---------------------------------------------------------------------
-// Parsers
-// ---------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// Parsers + CSRF
+// ───────────────────────────────────────────────────────────────────────────────
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-
-// ---------------------------------------------------------------------
-// CSRF (cookie + validation)
-// ---------------------------------------------------------------------
 app.use(ensureCsrfCookie);
 
-const isPaymentWebhook = (req: Request) =>
-  req.path.startsWith("/api/payments/") && /webhook/i.test(req.path);
+const isPaymentWebhook = (req: Request) => req.path.startsWith("/api/payments/") && /webhook/i.test(req.path);
 const isNewsletterSubscribe = (req: Request) => req.path === "/api/newsletter/subscribe";
 const isCouponValidate = (req: Request) => req.path === "/api/coupons/validate";
-
-// ✅ OAuth — brak CSRF (provider redirectuje bez naszego tokena)
-const isOAuthPath = (req: Request) => {
-  const p = req.path;
-  // Google
-  if (p === "/api/auth/google" || p === "/api/auth/google/callback") return true;
-  // Apple (start GET, callback najczęściej POST)
-  if (p === "/api/auth/apple" || p === "/api/auth/apple/callback") return true;
-  return false;
-};
+const isOAuthPath = (req: Request) =>
+  req.path === "/api/auth/google" ||
+  req.path === "/api/auth/google/callback" ||
+  req.path === "/api/auth/apple" ||
+  req.path === "/api/auth/apple/callback";
 
 const csrfForMutations = (req: Request, res: Response, next: NextFunction) => {
   const method = req.method.toUpperCase();
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
-  if (isPaymentWebhook(req) || isOAuthPath(req) || req.path === "/admin/seo/ping" || isNewsletterSubscribe(req) || isCouponValidate(req)) {
-    return next();
-  }
-
+  if (isPaymentWebhook(req) || isOAuthPath(req) || isNewsletterSubscribe(req) || isCouponValidate(req)) return next();
   const hdr = (req.headers["x-csrf-token"] as string) || (req.headers as any)["X-CSRF-Token"];
-  if (!hdr && (req as any).cookies?.csrf) {
-    (req.headers as any)["x-csrf-token"] = (req as any).cookies.csrf;
-  }
+  if (!hdr && (req as any).cookies?.csrf) (req.headers as any)["x-csrf-token"] = (req as any).cookies.csrf;
   return requireCsrf(req, res, next);
 };
 app.use(csrfForMutations);
 
-// ---------------------------------------------------------------------
-// AUTH – attachUser
-// ---------------------------------------------------------------------
-const JWT_SECRET = env.JWT_SECRET;
+// ⬇️ NEW: multer config (in-memory, limity)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 }, // 10 MB, max 5 plików
+});
 
+// ───────────────────────────────────────────────────────────────────────────────
+// attachUser (JWT/dev)
+// ───────────────────────────────────────────────────────────────────────────────
+const JWT_SECRET = env.JWT_SECRET;
 function pickToken(req: Request): string | undefined {
   const c = (req as any).cookies || {};
-  const cookieToken =
-    c.token || c.jwt || c.auth || c.auth_token || c.access_token || c.id_token || undefined;
-
+  const cookieToken = c.token || c.jwt || c.auth || c.auth_token || c.access_token || c.id_token || c.USER_ID || undefined;
   const auth = req.headers.authorization;
   const bearer = auth && auth.startsWith("Bearer ") ? auth.slice(7) : undefined;
   const xAuth = (req.headers["x-auth-token"] as string) || (req.headers["x-access-token"] as string);
-
   return (cookieToken as string) || bearer || xAuth;
 }
-
 async function attachUser(req: Request, _res: Response, next: NextFunction) {
   try {
     let userId: string | undefined;
@@ -311,16 +285,7 @@ async function attachUser(req: Request, _res: Response, next: NextFunction) {
         if (payload?.sub) userId = String(payload.sub);
         if (payload?.role) role = payload.role;
         if (payload?.email) email = payload.email;
-      } catch {
-        // ignore invalid JWT
-      }
-    }
-
-    if (!env.IS_PROD) {
-      const devUser = (req.headers["x-dev-user-id"] as string) || undefined;
-      const devAdmin = (req.headers["x-dev-admin"] as string) || undefined;
-      if (!userId && devUser) userId = devUser;
-      if (devAdmin === "1") role = "ADMIN";
+      } catch {}
     }
 
     if (!userId) {
@@ -340,65 +305,47 @@ async function attachUser(req: Request, _res: Response, next: NextFunction) {
       }
     }
 
-    if (userId && role) {
-      (req as any).user = { id: userId, role, email };
-    }
-  } catch {
-    // no-op
-  }
+    if (userId && role) (req as any).user = { id: userId, role, email };
+  } catch {}
   next();
 }
-
 app.use(attachUser);
 
-// ---------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────────
 // Health
-// ---------------------------------------------------------------------
-app.get("/", (_req: Request, res: Response) => {
-  res.send("Giftstore API is running 🚀");
-});
-app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({ ok: true });
-});
-if (!env.IS_PROD) {
-  app.get("/api/_whoami", (req: Request, res: Response) => {
-    res.json({ user: (req as any).user || null });
-  });
-}
+// ───────────────────────────────────────────────────────────────────────────────
+app.get("/", (_req: Request, res: Response) => res.send("Giftstore API is running 🚀"));
+app.get("/api/health", (_req: Request, res: Response) => res.json({ ok: true }));
 
-// ---------------------------------------------------------------------
-// robots.txt + Sitemaps (SEO)
-// ---------------------------------------------------------------------
-const SITE_URL = env.SITE_URL.replace(/\/+$/, "");
-const API_URL = (process.env.API_URL || "").replace(/\/+$/, "");
+// ───────────────────────────────────────────────────────────────────────────────
+// robots + sitemaps
+// ───────────────────────────────────────────────────────────────────────────────
+const SITE_URL_ABS = SITE_URL;
 
-// robots.txt
 app.get("/robots.txt", (_req: Request, res: Response) => {
   res.type("text/plain");
   res.set("Cache-Control", "public, max-age=3600, s-maxage=3600");
   res.send(`User-agent: *
 Allow: /
 
-Sitemap: ${SITE_URL}/sitemap.xml
+Sitemap: ${SITE_URL_ABS}/sitemap.xml
 `);
 });
 
-// sitemap index
 app.get("/sitemap.xml", async (req: Request, res: Response) => {
   const nowIso = new Date().toISOString();
   const maps = [
-    { loc: `${SITE_URL}/sitemap-products.xml`, lastmod: nowIso },
-    { loc: `${SITE_URL}/sitemap-categories.xml`, lastmod: nowIso },
-    { loc: `${SITE_URL}/sitemap-blog.xml`, lastmod: nowIso },
+    { loc: `${SITE_URL_ABS}/sitemap-products.xml`, lastmod: nowIso },
+    { loc: `${SITE_URL_ABS}/sitemap-categories.xml`, lastmod: nowIso },
+    { loc: `${SITE_URL_ABS}/sitemap-blog.xml`, lastmod: nowIso },
   ];
   return sendXmlCached(req, res, buildSitemapIndex(maps), 3600);
 });
 
-// sitemap produktów
 app.get("/sitemap-products.xml", async (req: Request, res: Response) => {
   const rows = await getProductRows(prisma as any, API_URL);
   const urls: SimpleEntry[] = rows.map((r) => ({
-    loc: `${SITE_URL}/product/${r.slug}`,
+    loc: `${SITE_URL_ABS}/product/${r.slug}`,
     ...(r.updatedAt ? { lastmod: new Date(r.updatedAt as any).toISOString() } : {}),
     changefreq: "daily",
     priority: 0.9,
@@ -408,17 +355,15 @@ app.get("/sitemap-products.xml", async (req: Request, res: Response) => {
     const parts = chunk(urls);
     const n = Number((req.query?.n as string) || 0) || 0;
     const idx = Math.min(Math.max(n, 0), parts.length - 1);
-    const part = parts[idx] ?? [];
-    return sendXmlCached(req, res, buildUrlset(part), 3600);
+    return sendXmlCached(req, res, buildUrlset(parts[idx] ?? []), 3600);
   }
   return sendXmlCached(req, res, buildUrlset(urls), 3600);
 });
 
-// sitemap kategorii
 app.get("/sitemap-categories.xml", async (_req: Request, res: Response) => {
   const rows = await getCategoryRows(prisma as any, API_URL);
   const urls: SimpleEntry[] = rows.map((r) => ({
-    loc: `${SITE_URL}/categories/${r.slug}`,
+    loc: `${SITE_URL_ABS}/categories/${r.slug}`,
     ...(r.updatedAt ? { lastmod: new Date(r.updatedAt as any).toISOString() } : {}),
     changefreq: "weekly",
     priority: 0.6,
@@ -426,11 +371,10 @@ app.get("/sitemap-categories.xml", async (_req: Request, res: Response) => {
   return sendXmlCached(_req, res, buildUrlset(urls), 3600);
 });
 
-// sitemap bloga
 app.get("/sitemap-blog.xml", async (_req: Request, res: Response) => {
   const rows = await getArticleRows(prisma as any, API_URL);
   const urls: SimpleEntry[] = rows.map((r) => ({
-    loc: `${SITE_URL}/blog/${r.slug}`,
+    loc: `${SITE_URL_ABS}/blog/${r.slug}`,
     ...(r.updatedAt ? { lastmod: new Date(r.updatedAt as any).toISOString() } : {}),
     changefreq: "weekly",
     priority: 0.7,
@@ -438,154 +382,9 @@ app.get("/sitemap-blog.xml", async (_req: Request, res: Response) => {
   return sendXmlCached(_req, res, buildUrlset(urls), 3600);
 });
 
-// ---------------------------------------------------------------------
-// Ping Google/Bing po sitemap (opcjonalne)
-// ---------------------------------------------------------------------
-async function pingSearchEngines(indexUrl: string) {
-  const targets = [
-    `https://www.google.com/ping?sitemap=${encodeURIComponent(indexUrl)}`,
-    `https://www.bing.com/ping?sitemap=${encodeURIComponent(indexUrl)}`,
-  ];
-  const out: { url: string; status: number }[] = [];
-  for (const t of targets) {
-    try {
-      const r = await fetch(t);
-      out.push({ url: t, status: r.status });
-    } catch {
-      out.push({ url: t, status: 0 });
-    }
-  }
-  return out;
-}
-
-type SeoPingResult = { url: string; status: number };
-type SeoPingState = {
-  lastHash: string;
-  lastRunAt?: string;
-  lastChangedAt?: string;
-  lastResult?: SeoPingResult[];
-  lastOk?: boolean;
-  runs: number;
-};
-const seoPingState: SeoPingState = { lastHash: "", runs: 0 };
-
-const pingStateFile = path.join(process.cwd(), "data", "seoPingState.json");
-(function loadPingState() {
-  try {
-    const raw = fs.readFileSync(pingStateFile, "utf-8");
-    Object.assign(seoPingState, JSON.parse(raw));
-  } catch {}
-})();
-function savePingState() {
-  try {
-    fs.mkdirSync(path.dirname(pingStateFile), { recursive: true });
-    fs.writeFileSync(pingStateFile, JSON.stringify(seoPingState, null, 2));
-  } catch {}
-}
-
-async function computeSitemapHash(): Promise<string> {
-  const r = await fetch(`${SITE_URL}/sitemap.xml`, { headers: { Accept: "application/xml" } });
-  const xml = await r.text();
-  const { createHash } = await import("node:crypto");
-  return createHash("sha1").update(xml).digest("hex");
-}
-
-/** Wysyłka maila – opcjonalna (SMTP lub webhook). */
-async function sendSeoMail(subject: string, text: string) {
-  if (process.env.SEO_MAIL_WEBHOOK) {
-    try {
-      await fetch(process.env.SEO_MAIL_WEBHOOK, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, text }),
-      });
-      return;
-    } catch {}
-  }
-
-  const SMTP_HOST = env.SMTP.HOST;
-  const SMTP_PORT = env.SMTP.PORT;
-  const SMTP_USER = env.SMTP.USER;
-  const SMTP_PASS = env.SMTP.PASS;
-  const SEO_MAIL_FROM = process.env.SEO_MAIL_FROM;
-  const SEO_MAIL_TO = process.env.SEO_MAIL_TO;
-
-  if (!SMTP_HOST || !SEO_MAIL_FROM || !SEO_MAIL_TO) return;
-
-  try {
-    const mod: any = await (Function('return import("nodemailer")')() as Promise<any>).catch(() => null);
-    if (!mod) return;
-    const nodemailer = mod.default || mod;
-
-    const transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: Number(SMTP_PORT || 587),
-      secure: String(SMTP_PORT || "587") === "465",
-      auth: SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
-    });
-
-    await transporter.sendMail({ from: SEO_MAIL_FROM, to: SEO_MAIL_TO, subject, text });
-  } catch {
-    // ignore
-  }
-}
-
-/**
- * Ręczny ping (np. po deployu z CI/CD)
- */
-app.post("/admin/seo/ping", async (req: Request, res: Response) => {
-  const token = String(req.query.token || req.headers["x-seo-ping-token"] || "");
-  const secret = String(process.env.SEO_PING_TOKEN || "");
-  if (!secret || token !== secret) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
-
-  const beforeHash = seoPingState.lastHash || "";
-  const currentHash = await computeSitemapHash();
-
-  const indexUrl = `${SITE_URL}/sitemap.xml`;
-  const results = await pingSearchEngines(indexUrl);
-
-  seoPingState.runs = (seoPingState.runs || 0) + 1;
-  seoPingState.lastRunAt = new Date().toISOString();
-  seoPingState.lastResult = results;
-  seoPingState.lastOk = results.some((r) => r.status >= 200 && r.status < 400);
-
-  const changed = currentHash !== beforeHash;
-  if (changed) {
-    seoPingState.lastHash = currentHash;
-    seoPingState.lastChangedAt = new Date().toISOString();
-    savePingState();
-
-    const statuses = results.map((r) => r.status).join(", ");
-    await sendSeoMail(
-      "Sitemap changed – ping sent",
-      `Sitemap hash changed.\nSite: ${SITE_URL}\nIndex: ${indexUrl}\nStatuses: ${statuses}\nWhen: ${seoPingState.lastChangedAt}`
-    );
-  } else {
-    savePingState();
-  }
-
-  return res.json({ ok: true, indexUrl, changed, state: seoPingState, results });
-});
-
-/** (opcjonalny podgląd statusu) */
-app.get("/admin/seo/ping/status", async (_req: Request, res: Response) => {
-  const token = String(_req.query.token || _req.headers["x-seo-ping-token"] || "");
-  const secret = String(process.env.SEO_PING_TOKEN || "");
-  if (!secret || token !== secret) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
-  try {
-    const currentHash = await computeSitemapHash();
-    seoPingState.lastHash ||= currentHash;
-  } catch {}
-  return res.json({ ok: true, siteUrl: SITE_URL, state: seoPingState });
-});
-
-// ---------------------------------------------------------------------
-// Newsletter (SMTP + Prisma, double opt-in)
-// ---------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// Newsletter
+// ───────────────────────────────────────────────────────────────────────────────
 const newsletterLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -612,41 +411,26 @@ async function makeTransporter() {
     auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS || "" } : undefined,
   });
 }
-
-function token(n = 24) {
-  return Buffer.from(crypto.getRandomValues(new Uint8Array(n))).toString("base64url");
-}
-// Node 18 nie ma global crypto.getRandomValues — fallback:
-import { randomBytes } from "node:crypto";
-function tokenBytes(n = 24) {
+function makeToken(n = 24) {
   return randomBytes(n).toString("base64url");
 }
-// używamy fallbacku:
-const makeToken = tokenBytes;
-
 function absUrl(pathname: string) {
   const base = (process.env.APP_URL || env.SITE_URL).replace(/\/+$/, "");
   const needsSlash = pathname && !pathname.startsWith("/");
   return `${base}${needsSlash ? "/" : ""}${pathname}`;
 }
-
 async function sendConfirmEmail(to: string, confirmToken: string) {
   const transporter = await makeTransporter();
   if (!transporter) throw new Error("SMTP not configured");
   const from = process.env.SMTP_FROM || "Gift Store <no-reply@giftstore.pl>";
   const confirmUrl = absUrl(`/api/newsletter/confirm?token=${encodeURIComponent(confirmToken)}`);
-
   const html = `
     <div style="font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px">
       <h2>Potwierdź zapis do newslettera Gift Store</h2>
       <p>Kliknij przycisk, aby potwierdzić subskrypcję:</p>
       <p><a href="${confirmUrl}" style="display:inline-block;padding:12px 18px;background:#FFD700;color:#000;text-decoration:none;border-radius:10px;font-weight:600">Potwierdź zapis</a></p>
       <p>Jeśli nie działa, skopiuj link:<br><a href="${confirmUrl}">${confirmUrl}</a></p>
-      <hr style="border:none;border-top:1px solid #eee;margin:24px 0"/>
-      <p style="font-size:12px;color:#555">Otrzymałeś tę wiadomość, bo ktoś wpisał Twój adres na Gift Store.</p>
-    </div>
-  `;
-
+    </div>`;
   await transporter.sendMail({
     from,
     to,
@@ -655,7 +439,6 @@ async function sendConfirmEmail(to: string, confirmToken: string) {
     html,
   });
 }
-
 async function sendWelcomeEmail(to: string, unsubscribeToken?: string) {
   const transporter = await makeTransporter();
   if (!transporter) return;
@@ -663,15 +446,12 @@ async function sendWelcomeEmail(to: string, unsubscribeToken?: string) {
   const unsubscribeUrl = unsubscribeToken
     ? absUrl(`/api/newsletter/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}`)
     : null;
-
   const html = `
     <div style="font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;padding:24px;max-width:640px;margin:0 auto">
       <h2 style="margin:0 0 12px">Subskrypcja potwierdzona 🎉</h2>
       <p style="margin:0 0 16px">Dziękujemy za zapis do newslettera Gift Store. Będziemy wysyłać tylko przydatne inspiracje i oferty.</p>
-      ${unsubscribeUrl ? `<p style="font-size:12px;color:#666">Możesz zrezygnować w dowolnym momencie: <a href="${unsubscribeUrl}">${unsubscribeUrl}</a></p>` : ""}
-    </div>
-  `;
-
+      ${unsubscribeUrl ? `<p style="font-size:12px;color:#666">Możesz zrezygnować: <a href="${unsubscribeUrl}">${unsubscribeUrl}</a></p>` : "" }
+    </div>`;
   await transporter.sendMail({
     from,
     to,
@@ -693,10 +473,7 @@ app.post("/api/newsletter/subscribe", newsletterLimiter, async (req: Request, re
   const source = req.headers.referer || "";
 
   const existing = await prisma.newsletterSubscriber.findUnique({ where: { email } }).catch(() => null);
-
-  if (existing && existing.status === "SUBSCRIBED") {
-    return res.send({ ok: true, duplicate: true });
-  }
+  if (existing && existing.status === "SUBSCRIBED") return res.send({ ok: true, duplicate: true });
 
   const confirmToken = makeToken();
   const unsubscribeToken = existing?.unsubscribeToken || makeToken();
@@ -743,8 +520,7 @@ app.get("/api/newsletter/confirm", async (req: Request, res: Response) => {
 
   sendWelcomeEmail(sub.email, sub.unsubscribeToken || undefined).catch(() => void 0);
 
-  const redirectTo = absUrl("/?newsletter=confirmed");
-  return res.redirect(302, redirectTo);
+  return res.redirect(302, absUrl("/?newsletter=confirmed"));
 });
 
 app.get("/api/newsletter/unsubscribe", async (req: Request, res: Response) => {
@@ -759,54 +535,182 @@ app.get("/api/newsletter/unsubscribe", async (req: Request, res: Response) => {
     data: { status: "UNSUBSCRIBED", unsubscribedAt: new Date() },
   });
 
-  const redirectTo = absUrl("/?newsletter=unsubscribed");
-  return res.redirect(302, redirectTo);
+  return res.redirect(302, absUrl("/?newsletter=unsubscribed"));
 });
 
-// ---------------------------------------------------------------------
-// PUBLIC API (routery)
-// ---------------------------------------------------------------------
-app.use("/api", coupons); // kupony
-app.use("/api/products", products);
-app.use("/api/cart", cart);
-app.use("/api/wishlist", wishlist);
-app.use("/api/blog", blog);
+// ───────────────────────────────────────────────────────────────────────────────
+// ⬇️ NEW: Formularz kontaktowy – POST /api/contact
+//     (po parsers + CSRF, przed routerami i 404)
+// ───────────────────────────────────────────────────────────────────────────────
+app.post(
+  "/api/contact",
+  upload.fields([
+    { name: "files[]", maxCount: 5 },
+    { name: "files",  maxCount: 5 },
+  ]),
+  async (req: Request, res: Response) => {
+    try {
+      const {
+        topic = "",
+        name = "",
+        email = "",
+        phone = "",
+        message = "",
+      } = (req.body || {}) as Record<string, string>;
+      const orderNumber = (req.body as any)?.orderNumber || (req.body as any)?.orderId || "";
 
-// Auth (JWT / magic / 2FA / email-change / OAuth)
-app.use("/api/auth", auth);
-app.use("/api/auth", authGoogle); // /api/auth/google, /api/auth/google/callback
-app.use("/api/auth", authApple);  // /api/auth/apple,  /api/auth/apple/callback (POST)
-app.use("/api/auth/magic", authMagic);
-app.use("/api/auth", authEmailChange);
-app.use("/api/auth", auth2fa);
+      if (!topic || !name || !email || !message) {
+        return res.status(400).json({ error: "Brak wymaganych pól." });
+      }
 
-// Public orders (checkout)
-app.use("/api/orders", publicOrders);
+      // Multer (fields): req.files to mapa nazwa_pola -> tablica plików
+      const raw = (req.files as any) || {};
+      const filesArr: Express.Multer.File[] = Array.isArray(raw)
+        ? raw
+        : ([] as Express.Multer.File[])
+            .concat(raw["files[]"] || [])
+            .concat(raw["files"] || []);
 
-// My orders (dla zalogowanego)
-app.use("/api/my/orders", myOrders);
+      const attachments = filesArr.map((f) => ({
+        filename: f.originalname,
+        content: f.buffer,
+        contentType: f.mimetype,
+      }));
 
-// ADMIN API
+      const transporter = await makeTransporter();
+      if (!transporter) return res.status(500).json({ error: "SMTP not configured" });
+
+      const from = process.env.SMTP_FROM || "Gift Store <no-reply@giftstore.pl>";
+      const to = process.env.CONTACT_TO || from;
+
+      const subject = `[Kontakt] ${topic} — ${name}${orderNumber ? ` (#${orderNumber})` : ""}`;
+
+      const text =
+`Nowe zgłoszenie z formularza kontaktowego:
+
+Temat: ${topic}
+Imię i nazwisko: ${name}
+E-mail: ${email}
+Telefon: ${phone || "-"}
+Numer zamówienia: ${orderNumber || "-"}
+
+Wiadomość:
+${message}
+`;
+
+      const html = `
+        <div style="font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5">
+          <h2>Nowe zgłoszenie z formularza kontaktowego</h2>
+          <p><b>Temat:</b> ${escapeHtml(topic)}</p>
+          <p><b>Imię i nazwisko:</b> ${escapeHtml(name)}</p>
+          <p><b>E-mail:</b> ${escapeHtml(email)}</p>
+          <p><b>Telefon:</b> ${escapeHtml(phone || "-")}</p>
+          <p><b>Numer zamówienia:</b> ${escapeHtml(orderNumber || "-")}</p>
+          <p><b>Wiadomość:</b><br/>${nl2br(escapeHtml(message))}</p>
+        </div>
+      `;
+
+      await transporter.sendMail({
+        from,
+        to,
+        replyTo: email,
+        subject,
+        text,
+        html,
+        attachments,
+      });
+
+      return res.json({ ok: true });
+    } catch (err: any) {
+      (req as any).log?.error({ err }, "Contact form send failed");
+      return res.status(500).json({ error: err?.message || "Send failed" });
+    }
+  }
+);
+
+function escapeHtml(s: string) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+function nl2br(s: string) {
+  return String(s).replace(/\n/g, "<br/>");
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// PUBLIC + ADMIN API — KOLEJNOŚĆ
+// ───────────────────────────────────────────────────────────────────────────────
+
+// Public coupons
+app.use("/api", coupons);
+
+// ⭐ PUBLIC CATEGORIES
+app.use("/api", publicCategoriesRouter);
+
+// ADMIN (montujemy PRZED resztą adminów)
+app.use("/api/admin", adminCategories);
+app.use("/api/admin", adminProducts);       // ⭐ nowy router produktów (admin)
+app.use("/api/admin", adminProductMedia);   // ⭐ nowy router mediów produktów (admin)
 app.use("/api/admin", admin);
 app.use("/api/admin", adminUsers);
-app.use("/api/admin", adminProducts);
-app.use("/api/admin", adminProductMedia);
-app.use("/api/admin", adminSeed);
-app.use("/api/admin", adminProductsMaintenance);
 app.use("/api/admin/orders", ordersAdmin);
 app.use("/api/admin", adminBlog);
 app.use("/api/admin", adminUpload);
 app.use("/api/admin", adminCoupons);
 
-// PAYMENTS API
+// ✅ rejestracja routera logów admina
+app.use("/api/admin", adminLogRouter);
+
+// HERO router (admin + public: /admin/hero oraz /public/hero)
+app.use("/api", adminHero);
+
+// ── NEW: notify (publiczne API do zgłoszeń back-in-stock)
+app.use("/api", notifyRouter);
+
+// Guard na SEED (PROD wymaga ADMIN_ALLOW_SEED=1)
+const allowSeed: RequestHandler = (req, res, next) => {
+  if (env.IS_PROD && process.env.ADMIN_ALLOW_SEED !== "1") {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  next();
+};
+app.use("/api/admin", allowSeed, adminSeedRouter);
+
+// PUBLIC/SHARED (po adminach)
+app.use("/api/products", products);
+app.use("/api", products);
+
+app.use("/api/cart", cart);
+app.use("/api/wishlist", wishlist);
+
+// Kanoniczny publiczny blog
+app.use("/api/blog", blogPublicRouter);
+app.use("/api/public/blog", blogPublicRouter); // alias kompatybilności
+
+// Auth
+app.use("/api/auth", auth);
+app.use("/api/auth", authGoogle);
+app.use("/api/auth", authApple);
+app.use("/api/auth/magic", authMagic);
+app.use("/api/auth", authEmailChange);
+app.use("/api/auth", auth2fa);
+
+// Orders
+app.use("/api/orders", publicOrders);
+app.use("/api/my/orders", myOrders);
+
+// Payments
 app.use("/api/payments/stripe", paymentsStripe);
 
 // 404 dla nieznanych /api/*
-app.use("/api/*", (_req: Request, res: Response) => {
-  res.status(404).json({ error: "Not found" });
-});
+app.use("/api/*", (_req: Request, res: Response) => res.status(404).json({ error: "Not found" }));
 
+// ───────────────────────────────────────────────────────────────────────────────
 // Global error handler
+// ───────────────────────────────────────────────────────────────────────────────
 app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   if (err?.message?.startsWith?.("CORS")) {
     (req as any).log?.warn({ err }, "CORS error");
@@ -820,76 +724,24 @@ app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: "Internal Server Error", requestId: (req as any).id });
 });
 
-// ---------------------------------------------------------------------
-// Auto-flow (opcjonalny, tylko prod)
-// ---------------------------------------------------------------------
-if (env.IS_PROD && process.env.AUTO_FLOW_ENABLED === "1") {
-  const every = "*/10 * * * *"; // co 10 min
-  const minutes = Math.max(1, parseInt(process.env.AUTO_FLOW_PREPARING_TO_PACKING_MIN || "120", 10));
-
-  cron.schedule(every, async () => {
-    try {
-      const threshold = new Date(Date.now() - minutes * 60 * 1000);
-      const toMove = await prisma.order.findMany({
-        where: { status: "PREPARING", updatedAt: { lt: threshold } },
-        select: { id: true },
-      });
-      for (const o of toMove) {
-        await prisma.order.update({ where: { id: o.id }, data: { status: "PACKING" as any } });
-      }
-      if (toMove.length) {
-        (app as any).log?.info?.(`[auto-flow] moved ${toMove.length} orders to PACKING`);
-      }
-    } catch (e: any) {
-      console.warn("[auto-flow] job failed:", e?.message);
-    }
-  });
-}
-
-// ---------------------------------------------------------------------
-// Server start
-// ---------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// Server start + smoke-check Hero
+// ───────────────────────────────────────────────────────────────────────────────
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => {
   logger.info(`API running on http://localhost:${port}`);
   logger.info(`Serving uploads from: ${uploadsDir} -> http://localhost:${port}/uploads/...`);
-  logger.info(
-    `APP_URL=${process.env.APP_URL || env.SITE_URL} API_URL=${process.env.API_URL || `http://localhost:${port}`}`
-  );
+  logger.info(`APP_URL=${process.env.APP_URL || env.SITE_URL} API_URL=${process.env.API_URL || `http://localhost:${port}`}`);
+  // 🔍 Smoke-check hero
+  prisma.siteSetting
+    .findUnique({ where: { key: "hero" } })
+    .then((row) => {
+      if (!row) {
+        logger.warn("[hero] Hero not configured – pokaż placeholder w panelu admina (np. kafel „Skonfiguruj hero”).");
+      } else {
+        const enabled = (row.value as any)?.enabled ?? true;
+        logger.info(`[hero] found (enabled=${enabled})`);
+      }
+    })
+    .catch((e) => logger.warn({ err: e?.message }, "[hero] smoke-check failed"));
 });
-
-// ---------------------------------------------------------------------
-// Auto-import kuponów z prisma/seed.ts przy starcie (opcjonalny)
-// ---------------------------------------------------------------------
-if (process.env.AUTO_IMPORT_COUPONS === "1") {
-  (async () => {
-    try {
-      const found = await readPrismaSeedFile();
-      if (!found) {
-        logger.warn("[coupons:auto-import] seed file not found (set COUPONS_SEED_FILE or PRISMA_SEED_FILE)");
-        return;
-      }
-      const items = parseSeedCoupons(found.text);
-      if (!items.length) {
-        logger.warn("[coupons:auto-import] no items parsed from seed file");
-        return;
-      }
-      let created = 0,
-        updated = 0,
-        failed = 0;
-      for (const raw of items) {
-        try {
-          const r = await ensureCoupon(prisma as any, raw as any, { upsert: true });
-          if (r?.created) created++;
-          else if (r?.updated) updated++;
-        } catch (e: any) {
-          failed++;
-          logger.warn({ code: (raw as any)?.code, err: e?.message }, "[coupons:auto-import] item failed");
-        }
-      }
-      logger.info(`[coupons:auto-import] created=${created} updated=${updated} failed=${failed} (from ${items.length})`);
-    } catch (e: any) {
-      logger.error({ err: e?.message }, "[coupons:auto-import] failed");
-    }
-  })();
-}

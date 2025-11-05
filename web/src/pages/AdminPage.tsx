@@ -1,6 +1,6 @@
 // src/pages/AdminPage.tsx
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 
@@ -18,6 +18,7 @@ type UserRow = {
 export default function AdminPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -98,33 +99,76 @@ export default function AdminPage() {
 
   if (!isAdmin) return null;
 
-  return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">Panel administracyjny</h1>
-        <nav className="flex flex-wrap gap-3 text-sm items-center">
-          <Link to="/admin/products" className="underline hover:no-underline">Produkty</Link>
-          <Link to="/admin/blog" className="underline hover:no-underline">Blog</Link>
-          <Link to="/admin/users" className="underline hover:no-underline">Użytkownicy</Link>
-          <Link to="/admin/logs" className="underline hover:no-underline">Logi</Link>
-          {/* NOWE: Kupony */}
-          <Link to="/admin/coupons" className="underline hover:no-underline">Kupony</Link>
+  // helper do aktywnych „zakładek”
+  const isActive = (path: string) => location.pathname === path;
 
-          {/* Szybkie przyciski akcji */}
+  return (
+    <div className="admin-skin admin-page max-w-6xl mx-auto p-6">
+      {/* Nagłówek + nawigacja modułów */}
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-2xl font-bold">Panel administracyjny</h1>
+
+        <nav className="flex flex-wrap gap-2 text-sm items-center">
           <Link
-            to="/admin/blog"
-            className="ml-2 px-3 py-1 rounded-lg border bg-white hover:bg-gray-50"
-            title="Przejdź do zarządzania blogiem"
+            to="/admin/products"
+            className={`admin-btn px-3 py-1 ${isActive("/admin/products") ? "primary" : ""}`}
           >
-            Zarządzaj blogiem →
+            Produkty
+          </Link>
+          <Link
+            to="/admin/orders"
+            className={`admin-btn px-3 py-1 ${isActive("/admin/orders") ? "primary" : ""}`}
+          >
+            Zamówienia
+          </Link>
+          <Link
+            to="/admin/users"
+            className={`admin-btn px-3 py-1 ${
+              isActive("/admin/users") || isActive("/admin") ? "primary" : ""
+            }`}
+          >
+            Użytkownicy
+          </Link>
+          <Link
+            to="/admin/logs"
+            className={`admin-btn px-3 py-1 ${isActive("/admin/logs") ? "primary" : ""}`}
+          >
+            Logi
           </Link>
           <Link
             to="/admin/coupons"
-            className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50"
-            title="Przejdź do zarządzania kuponami"
+            className={`admin-btn px-3 py-1 ${isActive("/admin/coupons") ? "primary" : ""}`}
           >
-            Zarządzaj kuponami →
+            Kupony
           </Link>
+
+          {/* NOWE: Hero */}
+          <Link
+            to="/admin/hero"
+            className={`admin-btn px-3 py-1 ${isActive("/admin/hero") ? "primary" : ""}`}
+            title="Sekcja hero strony głównej"
+          >
+            Hero
+          </Link>
+
+          {/* Kategorie */}
+          <Link
+            to="/admin/categories"
+            className={`admin-btn px-3 py-1 ${isActive("/admin/categories") ? "primary" : ""}`}
+            title="Zarządzaj kategoriami produktów"
+          >
+            Kategorie
+          </Link>
+
+          {/* Szybkie akcje po prawej */}
+          <Link
+            to="/admin/blog"
+            className="admin-btn px-3 py-1 ml-2"
+            title="Blog"
+          >
+            Blog
+          </Link>
+          {/* Usunięto: duplikat „Zarządzaj kuponami →” */}
         </nav>
       </div>
 
@@ -144,10 +188,10 @@ export default function AdminPage() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Szukaj po email / imię"
-          className="border rounded px-3 py-2 w-full sm:w-64"
+          className="admin-input w-full sm:w-64"
         />
         <select
-          className="border rounded px-2 py-2"
+          className="admin-select"
           value={role}
           onChange={(e) => setRole(e.target.value as "" | Role)}
         >
@@ -156,7 +200,7 @@ export default function AdminPage() {
           <option value="ADMIN">ADMIN</option>
         </select>
         <select
-          className="border rounded px-2 py-2"
+          className="admin-select"
           value={verified}
           onChange={(e) => setVerified(e.target.value as "" | "true" | "false")}
         >
@@ -164,15 +208,12 @@ export default function AdminPage() {
           <option value="true">Zweryfikowani</option>
           <option value="false">Niezweryfikowani</option>
         </select>
-        <button
-          onClick={() => load(1)}
-          className="px-4 py-2 rounded bg-black text-white hover:bg-gray-900"
-        >
+        <button onClick={() => load(1)} className="admin-btn primary">
           Filtruj
         </button>
       </div>
 
-      {error && <div className="mb-3 text-red-600">{error}</div>}
+      {error && <div className="mb-3 text-red-500">{error}</div>}
 
       {loading ? (
         <div>Ładowanie…</div>
@@ -180,58 +221,66 @@ export default function AdminPage() {
         <div>Brak danych.</div>
       ) : (
         <>
-          <div className="overflow-x-auto border rounded-lg">
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-100">
+          {/* Tabela */}
+          <div className="admin-table-wrap">
+            <table className="admin-table text-sm">
+              <thead>
                 <tr>
-                  <th className="text-left px-3 py-2">Email</th>
-                  <th className="text-left px-3 py-2">Imię</th>
-                  <th className="text-left px-3 py-2">Rola</th>
-                  <th className="text-left px-3 py-2">Weryf.</th>
-                  <th className="text-left px-3 py-2">Ban</th>
-                  <th className="text-left px-3 py-2">Akcje</th>
+                  <th className="text-left">Email</th>
+                  <th className="text-left">Imię</th>
+                  <th className="text-left">Rola</th>
+                  <th className="text-left">Weryfikacja</th>
+                  <th className="text-left">Ban</th>
+                  <th className="text-left">Akcje</th>
                 </tr>
               </thead>
               <tbody>
-                {resp.items.map((u) => (
-                  <tr key={u.id} className="border-t">
-                    <td className="px-3 py-2">{u.email}</td>
-                    <td className="px-3 py-2">{u.name ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <select
-                        className="border rounded px-2 py-1"
-                        value={u.role}
-                        disabled={busy}
-                        onChange={(e) => changeRole(u.id, e.target.value as Role)}
-                      >
-                        <option value="USER">USER</option>
-                        <option value="ADMIN">ADMIN</option>
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">{u.verifiedAt ? "tak" : "nie"}</td>
-                    <td className="px-3 py-2">
-                      {u.disabledAt ? (
-                        <span className="text-red-700 font-semibold">ZBANOWANY</span>
-                      ) : (
-                        <span className="text-green-700">OK</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <button
-                        disabled={busy}
-                        onClick={() => toggleBan(u.id, u.disabledAt)}
-                        className={`px-3 py-1 rounded border ${
-                          busy ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"
-                        }`}
-                      >
-                        {u.disabledAt ? "Odblokuj" : "Zbanuj"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {resp.items.map((u) => {
+                  const banned = Boolean(u.disabledAt);
+                  return (
+                    <tr key={u.id}>
+                      <td className="align-middle">{u.email}</td>
+                      <td className="align-middle">{u.name ?? "—"}</td>
+                      {/* RELATIVE -> z-index kontekst dla dropdowna */}
+                      <td className="align-middle relative">
+                        <select
+                          className="admin-select px-2 py-1"
+                          value={u.role}
+                          disabled={busy}
+                          onChange={(e) => changeRole(u.id, e.target.value as Role)}
+                          aria-label={`Zmień rolę użytkownika ${u.email}`}
+                        >
+                          <option value="USER">USER</option>
+                          <option value="ADMIN">ADMIN</option>
+                        </select>
+                      </td>
+                      <td className="align-middle">{u.verifiedAt ? "tak" : "nie"}</td>
+                      <td className="align-middle">
+                        {banned ? (
+                          <span className="admin-badge">ZBANOWANY</span>
+                        ) : (
+                          <span className="text-green-600 dark:text-green-400">OK</span>
+                        )}
+                      </td>
+                      <td className="align-middle">
+                        <button
+                          disabled={busy}
+                          onClick={() => toggleBan(u.id, u.disabledAt)}
+                          className={`admin-btn px-3 py-1 ${banned ? "success" : "danger"} ${
+                            busy ? "opacity-50 cursor-not-allowed" : ""
+                          }`}
+                          title={banned ? "Odblokuj użytkownika" : "Zbanuj użytkownika"}
+                          aria-label={`${banned ? "Odblokuj" : "Zbanuj"} użytkownika ${u.email}`}
+                        >
+                          {banned ? "Odblokuj" : "Zbanuj"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {resp.items.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-4 text-center text-gray-500">
+                    <td colSpan={6} className="px-3 py-4 text-center text-[var(--adm-muted)]">
                       Brak wyników.
                     </td>
                   </tr>
@@ -241,7 +290,7 @@ export default function AdminPage() {
           </div>
 
           {/* Paginacja */}
-          <div className="flex items-center gap-2 mt-4">
+          <div className="flex flex-wrap items-center gap-2 mt-4">
             <button
               disabled={page <= 1}
               onClick={() => {
@@ -249,11 +298,11 @@ export default function AdminPage() {
                 setPage(p);
                 load(p);
               }}
-              className={`px-3 py-1 rounded border ${page <= 1 ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"}`}
+              className={`admin-btn ${page <= 1 ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               ← Poprzednia
             </button>
-            <div className="text-sm">
+            <div className="text-sm text-[var(--adm-muted)]">
               Strona {resp.page} / {resp.pages} (łącznie: {resp.total})
             </div>
             <button
@@ -263,7 +312,7 @@ export default function AdminPage() {
                 setPage(p);
                 load(p);
               }}
-              className={`px-3 py-1 rounded border ${page >= (resp.pages || 1) ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"}`}
+              className={`admin-btn ${page >= (resp.pages || 1) ? "opacity-50 cursor-not-allowed" : ""}`}
             >
               Następna →
             </button>
@@ -276,8 +325,8 @@ export default function AdminPage() {
 
 function MetricCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border p-4 bg-white">
-      <div className="text-sm text-gray-600">{label}</div>
+    <div className="admin-card p-4 rounded-xl">
+      <div className="text-sm text-[var(--adm-muted)]">{label}</div>
       <div className="text-2xl font-extrabold">{value}</div>
     </div>
   );

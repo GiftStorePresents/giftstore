@@ -1,0 +1,22 @@
+{
+  "name": "Gift Store – Wyjątkowe prezenty na każdą okazję",
+  "short_name": "Gift Store",
+  "description": "Gift Store – sklep z wyjątkowymi prezentami dla niej, dla niego i dla dzieci. Znajdź idealny podarunek na każdą okazję!",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#D7263D",
+  "background_color": "#ffffff",
+  "categories": ["shopping", "gifts", "ecommerce"],
+  "lang": "pl",
+  "dir": "ltr",
+  "icons": [
+    { "src": "/icons/christmas_gift62na64.png",   "sizes": "64x64",   "type": "image/png" },
+    { "src": "/icons/christmas_gift69na72.png",   "sizes": "72x72",   "type": "image/png" },
+    { "src": "/icons/christmas_gift93na96.png",   "sizes": "96x96",   "type": "image/png" },
+    { "src": "/icons/christmas_gift124na128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "/icons/christmas_gift248na256.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "/icons/christmas_gift497na512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable any" }
+  ]
+}

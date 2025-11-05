@@ -5,6 +5,7 @@ import SeoHead from "../components/SeoHead";
 import Breadcrumbs from "../components/Breadcrumbs";
 import { env } from "../env";
 import Showdown from "showdown";
+import { API_BASE } from "../api"; // ← KLUCZ: jednolity base do fetchy
 
 /* ---------- Markdown setup ---------- */
 const md = new Showdown.Converter({
@@ -15,15 +16,56 @@ const md = new Showdown.Converter({
   tasklists: true,
 });
 
+/* ---------- Lokalne style dla artykułu (bez App.css) ---------- */
+function ArticleLocalStyles() {
+  return (
+    <style>{`
+      /* Jaśniejsze kolory treści w dark mode dla kontenera .prose-custom */
+      :root[data-theme="dark"] .prose-custom,
+      html.dark .prose-custom{
+        --tw-prose-body:       #eaf1ff;
+        --tw-prose-headings:   #ffffff;
+        --tw-prose-lead:       #cfd8ff;
+        --tw-prose-bold:       #ffffff;
+        --tw-prose-quotes:     #eaf1ff;
+
+        --tw-prose-links:      #ffd166;   /* złoty */
+        --tw-prose-counters:   #cfd8ff;
+        --tw-prose-bullets:    #ffd166;   /* kropki list */
+        --tw-prose-hr:         #334155;
+
+        --tw-prose-code:       #ffe7c2;
+        --tw-prose-th-borders: #3b4257;
+        --tw-prose-td-borders: #2b3246;
+
+        --tw-prose-quote-borders: #ffd166;
+      }
+
+      /* link w dark – po najechaniu do bieli */
+      :root[data-theme="dark"] .prose-custom :where(a):not(:where(.not-prose, .link-keep-color)) {
+        text-decoration-color: rgba(255, 209, 102, .6);
+      }
+      :root[data-theme="dark"] .prose-custom :where(a:hover):not(:where(.not-prose, .link-keep-color)) {
+        color:#fff;
+        text-decoration-color: currentColor;
+      }
+
+      /* markery list niech będą złote */
+      :root[data-theme="dark"] .prose-custom :where(li)::marker { color: var(--tw-prose-bullets); }
+
+      /* Opcjonalnie subtelniejsze obrazki w dark – brak filtrów, tylko zaokrąglenie */
+      .prose-custom img { border-radius: 0.75rem; }
+    `}</style>
+  );
+}
+
 /* ---------- Helpers ---------- */
 function looksLikeHtml(s = "") {
   return /<\/?[a-z][\s\S]*>/i.test(s);
 }
-
 function addRelToLinks(html) {
   return html.replace(/<a\s+([^>]*href=)/gi, '<a rel="noopener noreferrer nofollow" $1');
 }
-
 function absUrl(base, maybeRel) {
   if (!maybeRel) return undefined;
   if (/^https?:\/\//i.test(maybeRel)) return maybeRel;
@@ -32,19 +74,24 @@ function absUrl(base, maybeRel) {
   return `${prefix}${path}`;
 }
 
-/* ---------- Minimalny fetcher artykułu ---------- */
+/* ---------- Minimalny fetcher artykułu (API_BASE + fallback) ---------- */
 async function fetchArticle(slug) {
+  const base = (API_BASE || "").replace(/\/+$/, "");
   const endpoints = [
-    `/api/blog/${slug}`, // proxy przez frontend
-    `${env.API_URL ? env.API_URL.replace(/\/+$/, "") : ""}/api/blog/${slug}`, // fallback bezpośredni
+    `${base}/api/blog/${slug}`,
+    `${base}/api/public/blog/${slug}`,   // fallback
   ].filter(Boolean);
 
   let lastErr = null;
   for (const url of endpoints) {
     try {
-      const res = await fetch(url, { credentials: "include", headers: { Accept: "application/json" } });
+      const res = await fetch(url, {
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      const raw = await res.json();
+      return raw?.article || raw; // obsłuż oba formaty
     } catch (e) {
       lastErr = e;
     }
@@ -175,7 +222,7 @@ export default function ArticlePage() {
     return (
       <section className="my-10 max-w-4xl mx-auto px-4">
         <h1 className="text-3xl font-bold text-mainRed">Blog</h1>
-        <p className="mt-4 text-gray-600">Nie znaleziono artykułu.</p>
+        <p className="mt-4 text-gray-600 dark:text-[#d7e0ff]">Nie znaleziono artykułu.</p>
         <Link to="/blog" className="underline text-mainRed hover:text-gold mt-4 inline-block">
           ← Wróć do listy wpisów
         </Link>
@@ -184,10 +231,14 @@ export default function ArticlePage() {
   }
 
   /* ---------- Render ---------- */
-  const heroImgAbs = absUrl(SITE_URL, article.image);
+  const heroImgAbs = /^https?:\/\//i.test(article.image || "")
+    ? article.image
+    : `${(API_BASE || "").replace(/\/+$/,"")}${(article.image || article.imageUrl || "").startsWith("/") ? "" : "/"}${article.image || article.imageUrl || ""}`;
 
   return (
     <section className="my-10 max-w-4xl mx-auto px-4">
+      <ArticleLocalStyles />
+
       <SeoHead
         title={`${article.title} – Blog Gift Store`}
         description={article.excerpt || article.description || "Porady i inspiracje prezentowe."}
@@ -209,7 +260,7 @@ export default function ArticlePage() {
         <h1 className="text-3xl sm:text-4xl font-extrabold text-mainRed tracking-tight">
           {article.title}
         </h1>
-        <div className="mt-3 text-sm text-gray-500">
+        <div className="mt-3 text-sm text-gray-600 dark:text-[#d7e0ff]">
           <span>
             {article.author ? `Autor: ${article.author}` : "Redakcja Gift Store"} •{" "}
             {new Date(article.publishedAt).toLocaleDateString("pl-PL")}
@@ -236,11 +287,15 @@ export default function ArticlePage() {
       {/* Treść HTML (sanityzacja po stronie backendu rekomendowana) */}
       {article.contentHtml ? (
         <article
-          className="prose max-w-none prose-p:leading-7 prose-img:rounded-xl prose-headings:text-mainRed"
+          className="
+            prose prose-lg max-w-none prose-custom
+            prose-headings:text-mainRed
+            prose-p:leading-7
+          "
           dangerouslySetInnerHTML={{ __html: article.contentHtml }}
         />
       ) : (
-        <p className="text-gray-700 leading-relaxed whitespace-pre-line">
+        <p className="text-gray-700 dark:text-[#eaf1ff] leading-relaxed whitespace-pre-line">
           {article.description || "Brak treści artykułu."}
         </p>
       )}

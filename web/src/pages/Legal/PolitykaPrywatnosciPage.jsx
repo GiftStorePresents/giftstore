@@ -43,10 +43,9 @@ export default function PolitykaPrywatnosciPage() {
       <section className="mt-8 space-y-3">
         <h2 className="text-xl font-semibold">Administrator danych</h2>
         <p>
-          Administratorem danych jest Gift Store Sp. z o.o., ul. Prezentowa 7, 00-000
-          Warszawa, e-mail:{" "}
+          Administratorem danych jest Gift Store Sp. z o.o., e-mail:{" "}
           <a className="underline" href="mailto:iod@giftstore.pl">
-            iod@giftstore.pl
+            support@giftstore.pl
           </a>
           .
         </p>
@@ -55,10 +54,10 @@ export default function PolitykaPrywatnosciPage() {
       <section className="mt-8 space-y-3">
         <h2 className="text-xl font-semibold">Cele i podstawy przetwarzania</h2>
         <ul className="list-disc ml-6 space-y-1">
-          <li>Realizacja zamówień i obsługa klienta (art. 6 ust. 1 lit. b RODO).</li>
-          <li>Rozliczenia i obowiązki podatkowe (art. 6 ust. 1 lit. c RODO).</li>
-          <li>Marketing własnych produktów (art. 6 ust. 1 lit. f lub a RODO).</li>
-          <li>Analiza i statystyka – poprawa działania serwisu (art. 6 ust. 1 lit. f RODO).</li>
+          <li>Realizacja zamówień i obsługa klienta.</li>
+          <li>Rozliczenia.</li>
+          <li>Marketing własnych produktów.</li>
+          <li>Analiza i statystyka – poprawa działania serwisu.</li>
         </ul>
       </section>
 
@@ -93,8 +92,7 @@ export default function PolitykaPrywatnosciPage() {
           <li>sprostowanie, usunięcie, ograniczenie przetwarzania,</li>
           <li>przenoszenie danych,</li>
           <li>sprzeciw wobec przetwarzania,</li>
-          <li>cofnięcie zgody (jeśli przetwarzanie odbywa się na podstawie zgody),</li>
-          <li>skarga do Prezesa UODO.</li>
+          <li>cofnięcie zgody (jeśli przetwarzanie odbywa się na podstawie zgody)</li>
         </ul>
       </section>
 

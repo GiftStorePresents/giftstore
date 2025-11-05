@@ -175,31 +175,42 @@ export default function ProductCard({
     return () => clearInterval(i);
   }, [product?.promoEnd]);
 
-  // Wymiary / animacje (👈 zmniejszone obrazki)
+  // Wymiary / animacje (obrazek subtelnie mniejszy)
   const cardHeightClass = large
     ? "min-h-[460px] sm:min-h-[480px]"
     : "min-h-[420px] sm:min-h-[440px]";
 
   const imageSize = large
-    ? "w-36 h-36 sm:w-40 sm:h-40" // wcześniej 40/44 → subtelnie mniejsze
-    : "w-32 h-32 sm:w-36 sm:h-36"; // wcześniej 36/40
+    ? "w-44 h-44 sm:w-48 sm:h-48"
+    : "w-36 h-36 sm:w-40 sm:h-40";
 
   const scaleClass = scaleOnHover ? "hover:scale-105" : "hover:scale-[1.02]";
 
+  // OUT OF STOCK flag
+  const outOfStock =
+    typeof product?.stock === "number" ? product.stock <= 0 : false;
+
   return (
     <div
-      className={`relative w-full max-w-xs ${cardHeightClass} flex flex-col
+      className={`relative w-full ${cardHeightClass} h-full flex flex-col
       bg-white dark:bg-surface rounded-3xl shadow-xl hover:shadow-gold
-      ${scaleClass} transition-all duration-300 p-5 md:p-6 border-2 border-transparent
-      hover:border-gold overflow-hidden group`}
+      ${scaleClass} transition-all duration-300 p-5 md:p-6 border-2
+      ${outOfStock ? "border-black/10 dark:border-white/10" : "border-transparent hover:border-gold"}
+      overflow-hidden group
+      ${outOfStock ? "opacity-70 grayscale-[35%] pointer-events-auto" : ""}`}
       style={fixedHeight ? { height: `${fixedHeight}px` } : undefined}
     >
+      {/* SOLD OUT overlay */}
+      {outOfStock && (
+        <div className="absolute inset-0 z-30 bg-[rgba(15,20,36,0.38)] pointer-events-none" />
+      )}
+
       {/* Dekoracyjny pasek u góry */}
       <div className="absolute left-0 top-0 w-full h-2 bg-gradient-to-r from-mainRed via-gold to-mainRed opacity-80 rounded-t-3xl" />
 
       {/* ❤️ Wishlist */}
       <button
-        className="absolute top-4 right-4 z-20 transition-transform duration-200"
+        className="absolute top-4 right-4 z-40 transition-transform duration-200 touch-manipulation"
         title={isWishlisted(product) ? "Usuń z ulubionych" : "Dodaj do ulubionych"}
         onClick={(e) => {
           e.preventDefault();
@@ -223,7 +234,7 @@ export default function ProductCard({
       </button>
 
       {/* Rezerwacja miejsca na badge (stała wysokość) */}
-      <div className="h-6 mb-3 flex items-center justify-center gap-2">
+      <div className="h-6 mb-3 flex items-center justify-center gap-2 z-10">
         {product?.promo && (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-gold/90 text-mainRed border border-gold/60">
             <FaTag /> Promocja
@@ -234,12 +245,18 @@ export default function ProductCard({
             <FaFire /> Bestseller
           </span>
         )}
+        {outOfStock && (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold
+            bg-gray-400/90 text-white border border-gray-500/70">
+            Wyprzedane
+          </span>
+        )}
       </div>
 
       {/* Treść karty */}
       <Link
         to={`/product/${product.slug}`}
-        className="block w-full flex-1 flex flex-col"
+        className="block w-full flex-1 flex flex-col z-10"
         tabIndex={-1}
         aria-label={product.name}
         style={{ textDecoration: "none" }}
@@ -249,14 +266,13 @@ export default function ProductCard({
           <img
             src={imgSrc}
             onError={() => {
-              // jeśli plikowy fallback nie istnieje lub 404 – przełącz na inline i nie zapętlaj
               setImgSrc((prev) =>
                 prev === FALLBACK_IMG_FILE ? FALLBACK_IMG_INLINE : prev || FALLBACK_IMG_INLINE
               );
             }}
             alt={product.name}
-            width={176}
-            height={176}
+            width={160}
+            height={160}
             className={`${imageSize} object-cover rounded-2xl group-hover:ring-4 group-hover:ring-gold transition-all duration-300 group-hover:brightness-110 shadow-md`}
             loading="lazy"
           />
@@ -301,26 +317,31 @@ export default function ProductCard({
               Promocja kończy się za {timeLeft}
             </span>
           )}
-          {!product?.promoEnd && typeof product?.stock === "number" && product.stock <= 3 && (
+          {!product?.promoEnd && typeof product?.stock === "number" && product.stock > 0 && product.stock <= 3 && (
             <span className="text-xs text-red-600 font-bold">
               Zostały tylko {product.stock} sztuki!
             </span>
           )}
         </div>
       </Link>
+
       {/* CTA przyklejone do dołu karty */}
       <button
-        className="mt-auto bg-gradient-to-r from-gold to-yellow-400 text-mainRed font-bold px-6 py-2 rounded-xl hover:from-mainRed hover:to-mainRed hover:text-gold transition shadow-md border-2 border-gold hover:border-mainRed"
+        className={`mt-auto font-bold px-6 py-2 rounded-xl transition shadow-md border-2
+          ${outOfStock
+            ? "bg-gray-200 text-gray-500 border-gray-300 cursor-not-allowed"
+            : "bg-gradient-to-r from-gold to-yellow-400 text-mainRed hover:from-mainRed hover:to-mainRed hover:text-gold border-gold hover:border-mainRed"
+          }`}
         style={{ letterSpacing: "0.03em" }}
         onClick={() => {
+          if (outOfStock) return;
           addToCart(toCartItem(product));
           setToast && setToast("Dodano do koszyka!");
-          try {
-            window.dispatchEvent(new Event("cart:add"));
-          } catch {}
+          try { window.dispatchEvent(new Event("cart:add")); } catch {}
         }}
+        aria-disabled={outOfStock}
       >
-        Dodaj do koszyka
+        {outOfStock ? "Niedostępny" : "Dodaj do koszyka"}
       </button>
     </div>
   );

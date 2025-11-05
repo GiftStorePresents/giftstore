@@ -45,9 +45,9 @@ export type AdminProductListItem = {
 };
 
 export type AdminProductFull = AdminProductListItem & {
-  description?: string;
+  description?: string | null;
   brand?: string | null;
-  category?: string;
+  category?: { id: string; name: string; slug: string } | null;
 };
 
 // ----- Zamówienia: typy -----
@@ -91,7 +91,7 @@ export type AdminOrderListItem = {
 
 export type AdminOrder = AdminOrderListItem & {
   updatedAt: string;
-  items?: OrderItemView[]; // jeżeli backend zwraca
+  items?: OrderItemView[];
 };
 
 export type AdminOrdersListResponse = {
@@ -101,7 +101,6 @@ export type AdminOrdersListResponse = {
   pages: number;
 };
 
-// Publiczny widok zamówienia (używany w /api/my/orders/:id)
 export type AdminOrderView = {
   id: string;
   number: string;
@@ -112,52 +111,25 @@ export type AdminOrderView = {
   items?: OrderItemView[];
 };
 
-// ----- Public: Zamówienia (checkout) -----
+// ===== 🚀 NOWE: typy do Admin Logs =====
+export type AdminLogLevel = "INFO" | "WARN" | "ERROR" | "DEBUG";
 
-// Każda pozycja może być opisana przez variantId ALBO przez slug (fallback)
-export type CreateOrderItem =
-  | { variantId: string; qty: number; slug?: never }
-  | { slug: string; qty: number; variantId?: never };
-
-// Dane gościa, jeśli user nie jest zalogowany
-export type GuestInfo = {
-  name: string;
-  email: string;
-  address: string;
-};
-
-// Metody wysyłki i płatności jak w UI checkoutu
-export type ShippingMethod = "standard" | "locker" | "express" | "pickup";
-export type PaymentMethod = "online" | "blik" | "cod";
-
-// Payload tworzenia zamówienia po stronie public
-export type CreateOrderPayload = {
-  items: CreateOrderItem[];
-  shippingMethod: ShippingMethod;
-  paymentMethod: PaymentMethod;
-  discountCode?: string | null;
-
-  // Jeżeli user jest zalogowany – backend może pobrać adres z profilu.
-  // Jeżeli guest – wyślij guestInfo.
-  guestInfo?: GuestInfo;
-
-  // Podsumowanie z FE (opcjonalnie, backend i tak powinien policzyć sam)
-  summary?: {
-    subtotalCents: number;
-    discountCents: number;
-    shippingCents: number;
-    paymentSurchargeCents: number;
-    totalCents: number;
-  };
-};
-
-// Znormalizowana odpowiedź po utworzeniu zamówienia
-export type CreateOrderResult = {
-  ok: boolean;
+export type AdminLog = {
   id: string;
-  number: string;
-  status?: OrderStatus;
-  totalCents?: number;
+  createdAt: string;
+  level: AdminLogLevel;
+  action: string;
+  userId?: string | null;
+  ip?: string | null;
+  meta?: any;
+  message?: string | null;
+};
+
+export type Paged<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  pages: number;
 };
 
 // ===== CSRF cookie name =====
@@ -165,21 +137,22 @@ export const CSRF_COOKIE_NAME = "csrf";
 
 // ===== Ustal bazowy URL API =====
 function computeApiBase(): string {
-  const viteUrl = (import.meta as any)?.env?.VITE_API_URL as string | undefined;
-  if (typeof viteUrl === "string" && viteUrl.trim()) {
-    return viteUrl.trim().replace(/\/+$/, "");
-  }
+  // >>> ZMIANA: najpierw VITE_API_BASE, potem dla zgodności VITE_API_URL <<<
+  const envAny = (import.meta as any)?.env ?? {};
+  const viteBase = (envAny.VITE_API_BASE as string | undefined)?.trim();
+  if (viteBase) return viteBase.replace(/\/+$/, "");
 
+  const viteUrl = (envAny.VITE_API_URL as string | undefined)?.trim();
+  if (viteUrl) return viteUrl.replace(/\/+$/, "");
+
+  // Dev: front na 3000/5173/4173 → API na :4000
   if (typeof window !== "undefined" && window.location) {
     const { origin, hostname, port, protocol } = window.location;
-
-    // Typowe porty dev (React/Vite)
     const isDevHost = hostname === "localhost" || hostname === "127.0.0.1";
     const devPorts = new Set(["3000", "5173", "4173", ""]);
     if (isDevHost && devPorts.has(port || "")) {
       return `${protocol}//${hostname}:4000`;
     }
-
     return origin.replace(/\/+$/, "");
   }
 
@@ -214,7 +187,6 @@ function buildHttpError(res: Response, message?: string, data?: any) {
   return err;
 }
 
-// ===== Helpery błędów =====
 async function throwFromResponse(res: Response): Promise<never> {
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) {
@@ -267,7 +239,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       await throwFromResponse(res);
     } catch (e: any) {
-      if (e && typeof e === "object" && !e.url) e.url = url; // dopisz kontekst
+      if (e && typeof e === "object" && !e.url) e.url = url;
       console.error("[api] error", url, e);
       throw e;
     }
@@ -306,7 +278,7 @@ async function requestFormWithFallbacks<T>(
         cache: "no-store",
         redirect: "follow",
         body: buildForm(fieldName),
-        headers, // nie ustawiamy Content-Type dla FormData
+        headers, // NIE ustawiamy Content-Type dla FormData
       });
     } catch (netErr) {
       console.error("[api form] network error", url, netErr);
@@ -315,7 +287,7 @@ async function requestFormWithFallbacks<T>(
     return res;
   };
 
-  // 1) primary z "file"
+  // 1) primary z polem "file"
   let res = await once(primaryPath, "file");
 
   // 404/405 → alternatywna ścieżka (np. /images)
@@ -343,7 +315,7 @@ async function requestFormWithFallbacks<T>(
   return (await res.json()) as T;
 }
 
-/** ensureCsrf – spróbuj dogrzać cookie CSRF przed POST/PUT/PATCH/DELETE */
+/** ensureCsrf – dogrzej cookie CSRF przed POST/PUT/PATCH/DELETE */
 export async function ensureCsrf(): Promise<void> {
   if (getCookie(CSRF_COOKIE_NAME) || getCookie("XSRF-TOKEN")) return;
 
@@ -361,6 +333,138 @@ export async function ensureCsrf(): Promise<void> {
   }
 }
 
+// ===== Błędy i safe-wrapppery =====
+export type ApiError = {
+  ok: false;
+  status?: number;
+  code?: string;
+  message: string;
+  url?: string;
+  data?: any;
+};
+
+function toApiError(e: any): ApiError {
+  const status = typeof e?.status === "number" ? e.status : undefined;
+  const message =
+    (typeof e?.message === "string" && e.message) ||
+    (typeof e === "string" && e) ||
+    "Network / unknown error";
+  const code = typeof e?.statusText === "string" ? e.statusText : undefined;
+  const url = typeof e?.url === "string" ? e.url : undefined;
+  const data = e?.data;
+
+  // Dodatkowe podpowiedzi dla typowych przypadków
+  const hint =
+    status === 403 && /csrf/i.test(message)
+      ? " (CSRF? Spróbuj odświeżyć stronę lub zalogować się ponownie.)"
+      : status === 404
+      ? " (Endpoint nie istnieje na backendzie.)"
+      : "";
+
+  return { ok: false, status, code, message: message + hint, url, data };
+}
+
+/** fetch z domyślnym timeoutem 20s */
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit & { timeoutMs?: number }) {
+  const timeoutMs = init?.timeoutMs ?? 20_000;
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: init?.signal ?? controller.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** Kopia request() z timeoutem (używana przez requestSafe) */
+async function requestWithTimeout<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const headers = new Headers(init?.headers as HeadersInit | undefined);
+
+  if (isUnsafeMethod(init?.method)) {
+    const csrf = getCookie(CSRF_COOKIE_NAME) || getCookie("XSRF-TOKEN");
+    if (csrf && !headers.has("X-CSRF-Token")) {
+      headers.set("X-CSRF-Token", csrf);
+    }
+  }
+
+  const hasBody = init && "body" in init && init.body != null;
+  if (hasBody && !(init!.body instanceof FormData)) {
+    if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  }
+
+  const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(url, {
+      credentials: "include",
+      cache: "no-store",
+      redirect: "follow",
+      ...init,
+      headers,
+    });
+  } catch (netErr: any) {
+    const isAbort = netErr?.name === "AbortError";
+    console.error("[api] network error", url, netErr);
+    const err = new Error(isAbort ? "Request timeout" : "Network error") as any;
+    err.url = url;
+    throw err;
+  }
+
+  if (!res.ok) {
+    try {
+      await throwFromResponse(res);
+    } catch (e: any) {
+      if (e && typeof e === "object" && !e.url) e.url = url;
+      console.error("[api] error", url, e);
+      throw e;
+    }
+  }
+
+  if (res.status === 204) return undefined as unknown as T;
+
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const text = await res.text();
+    return text as unknown as T;
+  }
+
+  return res.json() as Promise<T>;
+}
+
+/** Safe-odpowiednik: zamiast throw → zwraca ApiError */
+export async function requestSafe<T>(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number }
+): Promise<{ ok: true; data: T } | ApiError> {
+  try {
+    const data = await requestWithTimeout<T>(path, init);
+    return { ok: true, data };
+  } catch (e: any) {
+    return toApiError(e);
+  }
+}
+
+/* =======================
+ *  🚀 PUBLIC HELPER: adminLogs (z filtrami)
+ *  (nic nie koliduje ze starym api.admin.logs(page,limit))
+ * ======================= */
+export async function adminLogs(params: {
+  page?: number;
+  limit?: number;
+  q?: string;
+  level?: AdminLogLevel | string;
+  action?: string;
+}): Promise<Paged<AdminLog>> {
+  const p = new URLSearchParams();
+  if (params.page) p.set("page", String(params.page));
+  if (params.limit) p.set("limit", String(params.limit));
+  if (params.q) p.set("q", params.q);
+  if (params.level) p.set("level", String(params.level));
+  if (params.action) p.set("action", params.action);
+  return request<Paged<AdminLog>>(`/api/admin/logs?${p.toString()}`);
+}
+
 // ===== API =====
 export const api = {
   // Healthcheck
@@ -370,7 +474,7 @@ export const api = {
   products: (page?: number) =>
     request<PagedProducts>(`/api/products${page ? `?page=${page}` : ""}`),
 
-  /** 🔹 Surowy dostęp do listy produktów z własnymi query-stringami */
+  /** Surowy dostęp do listy produktów z własnymi query-stringami */
   productsRaw: (qs: string) => {
     const suffix = !qs ? "" : qs.startsWith("?") ? qs : `?${qs}`;
     return request<PagedProducts>(`/api/products${suffix}`);
@@ -435,11 +539,6 @@ export const api = {
         body: JSON.stringify({ currentPassword, newPassword }),
       }),
 
-    /**
-     * /api/auth/me:
-     * - 401 → { user: null, authenticated: false } (bez wyjątku)
-     * - inne błędy → wyjątek z err.status (np. 429)
-     */
     me: async (): Promise<MeResponse> => {
       const url = `${API_BASE}/api/auth/me`;
       let res: Response;
@@ -565,13 +664,31 @@ export const api = {
     },
   },
 
-  // ===== Public: Zamówienia (checkout + moje zamówienia) =====
+  // ===== Public: Zamówienia =====
   orders: {
-    /**
-     * Tworzy zamówienie na backendzie (POST).
-     * Próbuje /api/orders; jeśli 404/405 → fallback: /api/order, /api/checkout
-     */
-    create: async (payload: CreateOrderPayload): Promise<CreateOrderResult> => {
+    create: async (payload: {
+      items: (
+        | { variantId: string; qty: number; slug?: never }
+        | { slug: string; qty: number; variantId?: never }
+      )[];
+      shippingMethod: "standard" | "locker" | "express" | "pickup";
+      paymentMethod: "online" | "blik" | "cod";
+      discountCode?: string | null;
+      guestInfo?: { name: string; email: string; address: string };
+      summary?: {
+        subtotalCents: number;
+        discountCents: number;
+        shippingCents: number;
+        paymentSurchargeCents: number;
+        totalCents: number;
+      };
+    }): Promise<{
+      ok: boolean;
+      id: string;
+      number: string;
+      status?: OrderStatus;
+      totalCents?: number;
+    }> => {
       await ensureCsrf();
 
       const once = async (path: string) => {
@@ -637,7 +754,6 @@ export const api = {
       );
     },
 
-    // ===== Moje zamówienia (dla zalogowanego użytkownika) =====
     my: {
       list: () =>
         request<{
@@ -657,6 +773,7 @@ export const api = {
 
   // ===== Admin =====
   admin: {
+    // Lista użytkowników itd.
     users: (
       page = 1,
       limit = 20,
@@ -704,81 +821,140 @@ export const api = {
         banned: number;
       }>(`/api/admin/metrics`),
 
+    // ⬇⬇⬇ ISTNIEJĄCY — nie zmieniam
     logs: (page = 1, limit = 20) =>
       request<{ items: any[]; total: number; page: number; pages: number }>(
         `/api/admin/logs?page=${page}&limit=${limit}`
       ),
 
-    // ----- Produkty -----
-    products: (page = 1, limit = 20, query = "", withDeleted = false) =>
-      request<{
+    // ⬇⬇⬇ NOWY: z filtrami (q/level/action/page/limit) i poprawnymi typami
+    logsSearch: (opts?: {
+      page?: number;
+      limit?: number;
+      q?: string;
+      level?: AdminLogLevel | string;
+      action?: string;
+    }) => {
+      const p = new URLSearchParams();
+      p.set("page", String(opts?.page ?? 1));
+      p.set("limit", String(opts?.limit ?? 25));
+      if (opts?.q) p.set("q", opts.q);
+      if (opts?.level) p.set("level", String(opts.level));
+      if (opts?.action) p.set("action", opts.action);
+      return request<Paged<AdminLog>>(`/api/admin/logs?${p.toString()}`);
+    },
+
+    // ----- Produkty (ADMIN) -----
+
+    // === LISTA ADMIN: GET /api/admin/products ===
+    products: (
+      page = 1,
+      limit = 20,
+      q = "",
+      withDeleted = false,
+      opts?: {
+        category?: string;
+        featured?: boolean;
+      }
+    ) => {
+      const p = new URLSearchParams();
+      p.set("page", String(page));
+      p.set("limit", String(limit));
+      if (q) p.set("q", q);
+      if (withDeleted) p.set("withDeleted", "true");
+      if (opts?.category) p.set("category", opts.category);
+      if (opts?.featured) p.set("featured", "true");
+      return request<{
         items: AdminProductListItem[];
         total: number;
         page: number;
         pages: number;
-      }>(
-        `/api/admin/products?page=${page}&limit=${limit}` +
-          (query ? `&query=${encodeURIComponent(query)}` : "") +
-          (withDeleted ? `&withDeleted=true` : "")
-      ),
+      }>(`/api/admin/products?${p.toString()}`);
+    },
 
+    // === GET /api/admin/products/:id ===
     productById: (id: string) =>
-      request<{ product: AdminProductFull }>(`/api/admin/products/${id}`),
+      request<{ product: AdminProductFull } | AdminProductFull>(`/api/admin/products/${id}`),
 
-    createProduct: (payload: {
-      name: string;
-      slug: string;
-      description: string;
-      brand?: string;
-      category: string;
-      variant: {
-        sku: string;
-        priceCents: number;
-        stock?: number;
-        color?: string;
-        size?: string;
-        personalize?: boolean;
-      };
-    }) =>
-      request<{ ok: true; product: any }>(`/api/admin/products`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }),
-
+    // === PATCH /api/admin/products/:id (edycja) ===
     updateProduct: (
       id: string,
       payload: Partial<{
         name: string;
         slug: string;
-        description: string;
-        brand: string;
-        category: string;
+        description: string | null;
+        brand: string | null;
+        category: string | { slug: string } | ""; // slug lub "" (wyczyść)
         featured: boolean;
-        undelete: boolean;
+        undelete: boolean; // przywrócenie po soft-delete
       }>
     ) =>
-      request<{ ok: true; product: any }>(`/api/admin/products/${id}`, {
-        method: "PUT",
+      request<{ product: any }>(`/api/admin/products/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       }),
 
-    deleteProduct: (id: string) =>
-      request<{ ok: true }>(`/api/admin/products/${id}`, { method: "DELETE" }),
+    // === DELETE /api/admin/products/:id (soft/hard) ===
+    deleteProduct: async (id: string, opts?: { hard?: boolean }) => {
+      await ensureCsrf();
+      const qs = opts?.hard ? "?hard=1" : "";
+      return request<{ ok: true }>(`/api/admin/products/${id}${qs}`, {
+        method: "DELETE",
+      });
+    },
 
-    updateVariantPrice: (variantId: string, priceCents: number) =>
-      request<{ ok: true; variant: any }>(
-        `/api/admin/variants/${variantId}/price`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ priceCents }),
-        }
-      ),
+    // === BULK DELETE: DELETE /api/admin/products (soft/hard) ===
+    deleteProductsBulk: async (ids: string[], opts?: { hard?: boolean }) => {
+      await ensureCsrf();
+      return request<{ ok: true; hard: boolean; count: number }>(`/api/admin/products`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, force: !!opts?.hard }),
+      });
+    },
+
+    /** Utworzenie nowego produktu (z jednym wariantem) */
+    createProduct: (payload: {
+      name: string;
+      slug: string;
+      description?: string | null;
+      brand?: string | null;
+      category?: string | { slug: string } | "";
+      featured?: boolean;
+      variant: {
+        sku?: string;
+        priceCents: number;
+        stock?: number;
+        color?: string | null;
+        size?: string | null;
+        personalize?: boolean;
+      };
+    }) =>
+      request<{ product: any }>(`/api/admin/products`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+
+    /** Zapis wariantu – PATCH /api/admin/variants/:variantId */
+    updateVariant: (
+      variantId: string,
+      payload: {
+        sku?: string | null;
+        priceCents?: number;
+        stock?: number;
+        color?: string | null;
+        size?: string | null;
+        personalize?: boolean;
+      }
+    ) =>
+      request<{ variant: any }>(`/api/admin/variants/${variantId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      }),
 
     /**
-     * Upload obrazka z automatycznymi fallbackami:
-     * - próbuje /upload-image z polem "file"
-     * - 404/405 => próbuje /images
-     * - 400/415 => próbuje to samo z polem "image"
+     * Upload obrazka (FormData)
      */
     uploadProductImage: async (productId: string, file: File) => {
       const buildForm = (field: "file" | "image") => {
@@ -786,36 +962,61 @@ export const api = {
         fd.append(field, file);
         return fd;
       };
+      const primary = `/api/admin/products/${encodeURIComponent(productId)}/upload-image`;
+      const alt = `/api/admin/products/${encodeURIComponent(productId)}/images`;
 
-      const primary = `/api/admin/products/${encodeURIComponent(
-        productId
-      )}/upload-image`;
-      const alt = `/api/admin/products/${encodeURIComponent(
-        productId
-      )}/images`;
-
-      return requestFormWithFallbacks<{ ok: true; media: AdminMedia }>(
+      const out = await requestFormWithFallbacks<{ media: AdminMedia } | { ok: true; media: AdminMedia }>(
         primary,
         alt,
         buildForm,
         "POST"
       );
+      return ("media" in out ? out.media : (out as any).media) as AdminMedia;
     },
 
+    /** Usunięcie obrazka */
     deleteProductImage: (mediaId: string) =>
       request<{ ok: true }>(`/api/admin/media/${encodeURIComponent(mediaId)}`, {
         method: "DELETE",
       }),
 
-    /** Wywołanie backendowego seeda popularnych produktów */
-    seedPopular: (mode?: "create" | "upsert") =>
-      request<{
-        ok: boolean;
-        createdCount: number;
-        created: Array<{ id: string; slug: string }>;
-      }>(`/api/admin/seed/popular${mode ? `?mode=${mode}` : ""}`, {
+    /**
+     * Seed popularnych produktów – POST { mode } (insert|upsert|create->insert)
+     * Zwraca co najmniej { createdCount, created }, niektóre backendy dodają { updatedCount }.
+     */
+
+    /** Seed popularnych produktów – wariant SAFE (nie rzuca, tylko zwraca ApiError) */
+    seedPopularSafe: async (mode?: "insert" | "upsert" | "create") => {
+      type SeedPopularResponse = {
+        createdCount?: number;
+        updatedCount?: number;
+        created?: Array<{ id: string; slug: string }>;
+        ok?: boolean; // backend może dodać
+      };
+      await ensureCsrf();
+      const realMode = mode === "create" ? "insert" : mode || "insert";
+      const res = await requestSafe<SeedPopularResponse>(`/api/admin/seed/popular`, {
         method: "POST",
-      }),
+        body: JSON.stringify({ mode: realMode }),
+        // podniesiony timeout — pierwsze seedowanie może pobierać obrazki
+        timeoutMs: 60_000,
+      });
+      return res;
+    },
+
+    seedPopular: async (mode?: "insert" | "upsert" | "create") => {
+      type SeedPopularResponse = {
+        createdCount?: number;
+        updatedCount?: number;
+        created?: Array<{ id: string; slug: string }>;
+      };
+      await ensureCsrf(); // ⬅⬅⬅ KLUCZOWE
+      const realMode = mode === "create" ? "insert" : mode || "insert";
+      return request<SeedPopularResponse>(`/api/admin/seed/popular`, {
+        method: "POST",
+        body: JSON.stringify({ mode: realMode }),
+      });
+    },
 
     // ----- Zamówienia (admin) -----
     orders: {
@@ -830,9 +1031,7 @@ export const api = {
         p.set("limit", String(opts?.limit ?? 20));
         if (opts?.q) p.set("q", opts.q);
         if (opts?.status) p.set("status", opts.status);
-        return request<AdminOrdersListResponse>(
-          `/api/admin/orders?${p.toString()}`
-        );
+        return request<AdminOrdersListResponse>(`/api/admin/orders?${p.toString()}`);
       },
 
       get: (orderId: string) =>
@@ -850,8 +1049,6 @@ export const api = {
         ),
 
       exportCsvUrl: () => `${API_BASE}/api/admin/orders/export.csv`,
-      // przyszłościowo:
-      // exportExcelUrl: () => `${API_BASE}/api/admin/orders/export.xlsx`,
     },
   },
 };

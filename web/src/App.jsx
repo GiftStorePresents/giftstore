@@ -1,4 +1,12 @@
-// src/App.jsx
+// =======================================================================
+// src/App.jsx — Gift Store
+// Wersja: 2025-11-02
+// Zmiany:
+// - Dodano trasę /admin/hero (AdminHeroPage) pod AdminRoute
+// - Zachowano „miękkie” odświeżanie kategorii po visibilitychange
+// - Reszta tras bez zmian
+// =======================================================================
+
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState, Suspense, lazy } from "react";
 
@@ -32,6 +40,15 @@ import AdminOrderDetailsPage from "./pages/AdminOrderDetailsPage";
 import AdminBlogPage from "./pages/AdminBlogPage";
 import AdminCouponsPage from "./pages/AdminCouponsPage";
 
+// Kategorie (admin)
+import AdminCategoriesPage from "./pages/AdminCategoriesPage";
+
+// Szczegóły produktu (admin)
+import AdminProductDetailsPage from "./pages/AdminProductDetailsPage";
+
+// 🔥 NOWE: strona edycji Hero
+import AdminHeroPage from "./pages/AdminHeroPage";
+
 import MyOrdersPage from "./pages/MyOrdersPage";
 import MyOrderDetailsPage from "./pages/MyOrderDetailsPage";
 
@@ -40,11 +57,15 @@ import ArticlePage from "./pages/ArticlePage";
 
 import HomePage from "./pages/HomePage";
 import ThankYouPage from "./pages/ThankYouPage";
-import CheckoutSuccessRedirectPage from "./pages/CheckoutSuccessRedirectPage"; // ⬅️ alias po Stripe
+import CheckoutSuccessRedirectPage from "./pages/CheckoutSuccessRedirectPage";
+import ContactPage from "./pages/ContactPage";
 
 import "./App.css";
 import { useAuth } from "./context/AuthContext";
-import { useTheme } from "./context/ThemeContext";
+
+// (opcjonalnie) zasianie indeksu wyszukiwarki z API.
+// Jeśli nie masz tego pliku, po prostu ZAKOMENTUJ linijkę poniżej.
+import SearchDatasetBootstrapper from "./context/SearchDatasetBootstrapper";
 
 const RegulaminPage = lazy(() => import("./pages/Legal/RegulaminPage"));
 const PolitykaPrywatnosciPage = lazy(() => import("./pages/Legal/PolitykaPrywatnosciPage"));
@@ -52,7 +73,9 @@ const FAQPage = lazy(() => import("./pages/Legal/FAQPage"));
 
 const GA_ID = import.meta.env?.VITE_GA_MEASUREMENT_ID;
 
-/* ---------------- GA4 page_view listener ---------------- */
+/* =========================================================
+   Google Analytics 4 page_view listener
+   ========================================================= */
 function GAListener() {
   const location = useLocation();
 
@@ -65,9 +88,7 @@ function GAListener() {
     document.head.appendChild(s);
 
     window.dataLayer = window.dataLayer || [];
-    function gtag() {
-      window.dataLayer.push(arguments);
-    }
+    function gtag(){ window.dataLayer.push(arguments); }
     window.gtag = gtag;
 
     gtag("js", new Date());
@@ -88,7 +109,9 @@ function GAListener() {
   return null;
 }
 
-/* ---------------- Post-login redirect ---------------- */
+/* =========================================================
+   Post-login redirect
+   ========================================================= */
 const REDIRECT_KEY = "postLoginRedirect";
 function PostLoginRedirect() {
   const { user } = useAuth();
@@ -109,13 +132,14 @@ function PostLoginRedirect() {
   return null;
 }
 
-/* ---------------- App Shell ---------------- */
+/* =========================================================
+   App Shell — Layout + Routing
+   ========================================================= */
 function AppShell({ setToast }) {
-  const { theme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Toast po powrocie z linków newslettera (?newsletter=...)
+  // Newsletter (?newsletter=confirmed/unsubscribed/pending)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const flag = params.get("newsletter");
@@ -123,8 +147,7 @@ function AppShell({ setToast }) {
 
     let message = "";
     if (flag === "confirmed") {
-      message =
-        "Dziękujemy za zapis do newslettera! ✨ Sprawdź skrzynkę – wysłaliśmy potwierdzenie.";
+      message = "Dziękujemy za zapis do newslettera! ✨ Sprawdź skrzynkę – wysłaliśmy potwierdzenie.";
     } else if (flag === "unsubscribed") {
       message = "Zostałeś wypisany z newslettera. Szkoda, że odchodzisz. 🥺";
     } else if (flag === "pending") {
@@ -133,7 +156,6 @@ function AppShell({ setToast }) {
 
     if (message) setToast?.(message);
 
-    // wyczyść parametr z URL
     params.delete("newsletter");
     const newSearch = params.toString();
     navigate(
@@ -145,47 +167,15 @@ function AppShell({ setToast }) {
 
   return (
     <div
-      className={
-        "min-h-screen bg-cover bg-fixed relative overflow-x-hidden " +
-        (theme === "dark" ? "bg-mesh-gift-dark-pretty" : "bg-mesh-gift")
-      }
+      id="app-shell"
+      className="
+        min-h-screen relative
+        overflow-x-hidden overflow-y-visible
+        transition-colors duration-300
+        bg-gift-wrap dark:bg-aurora-dark
+      "
     >
-      {/* decorative mesh background */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-0"
-        style={{
-          background:
-            "radial-gradient(circle at 20% 10%, var(--bg-start)cc 0%, transparent 65%), " +
-            "radial-gradient(circle at 90% 80%, var(--accent)22 0%, transparent 75%), " +
-            "var(--pattern-url)",
-          filter: "blur(22px) saturate(1.14)",
-          opacity: theme === "dark" ? 0.55 : 0.7,
-          zIndex: 0,
-          mixBlendMode: theme === "dark" ? "screen" : "soft-light",
-        }}
-      />
-
-      {/* optional SVG blob glow */}
-      <svg
-        className="absolute left-[-10vw] top-[-8vw] w-[70vw] h-[60vw] opacity-20 -z-10 pointer-events-none"
-        viewBox="0 0 900 600"
-        aria-hidden="true"
-      >
-        <defs>
-          <radialGradient id="gold-gradient" cx="50%" cy="50%" r="70%">
-            <stop offset="0%" stopColor="#fffbe8" />
-            <stop offset="80%" stopColor="#ffd700" />
-            <stop offset="100%" stopColor="transparent" />
-          </radialGradient>
-        </defs>
-        <path
-          fill="url(#gold-gradient)"
-          d="M662,582Q618,684,504,653Q390,622,329,539Q268,456,226,375Q184,294,255,200Q326,106,442,96Q558,86,648,161Q738,236,744,368Q750,500,662,582Z"
-        />
-      </svg>
-
-      {/* Skip link dla a11y */}
+      {/* Skip link dla dostępności */}
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-black focus:px-3 focus:py-2 focus:rounded-xl"
@@ -193,22 +183,22 @@ function AppShell({ setToast }) {
         Przejdź do treści
       </a>
 
+      {/* (opcjonalnie) inicjalizacja indeksu wyszukiwarki z API */}
+      <SearchDatasetBootstrapper />
+
       <Header />
 
-      {/* light overlay in light theme */}
-      <div className="fixed inset-0 z-0 pointer-events-none select-none">
-        <div
-          className="absolute inset-0"
-          style={{
-            background: "linear-gradient(120deg, var(--bg-start) 0%, var(--bg-end) 100%)",
-            opacity: theme === "dark" ? 0 : 0.85,
-          }}
-        />
-      </div>
-
+      {/* Główna kolumna treści — centrowanie i zapas na dole */}
       <main
         id="main"
-        className="w-full max-w-7xl mx-auto px-4 sm:px-5 md:px-6 lg:px-8 py-4 md:py-6 relative z-10"
+        className="
+          container mx-auto w-full
+          px-4 sm:px-5 md:px-6 lg:px-8
+          py-4 md:py-6
+          pb-16 md:pb-24
+          relative z-10
+          overflow-visible
+        "
       >
         <Suspense fallback={<div className="text-center py-12 text-muted">Ładowanie…</div>}>
           <Routes>
@@ -229,6 +219,11 @@ function AppShell({ setToast }) {
             <Route path="/admin/orders/:orderId" element={<AdminRoute><AdminOrderDetailsPage /></AdminRoute>} />
             <Route path="/admin/blog" element={<AdminRoute><AdminBlogPage /></AdminRoute>} />
             <Route path="/admin/coupons" element={<AdminRoute><AdminCouponsPage /></AdminRoute>} />
+            <Route path="/admin/categories" element={<AdminRoute><AdminCategoriesPage /></AdminRoute>} />
+            {/* 🔥 NOWA TRASA: edycja Hero */}
+            <Route path="/admin/hero" element={<AdminRoute><AdminHeroPage /></AdminRoute>} />
+            {/* U Ciebie było bez AdminRoute — zostawiamy zgodnie z oryginałem */}
+            <Route path="/admin/products/:id" element={<AdminProductDetailsPage />} />
 
             {/* Client orders */}
             <Route path="/orders" element={<MyOrdersPage />} />
@@ -243,7 +238,7 @@ function AppShell({ setToast }) {
             <Route path="/checkout" element={<CheckoutPage setToast={setToast} />} />
             <Route path="/cart" element={<CartPage />} />
             <Route path="/thank-you" element={<ThankYouPage />} />
-            <Route path="/checkout/success" element={<CheckoutSuccessRedirectPage />} /> {/* alias Stripe */}
+            <Route path="/checkout/success" element={<CheckoutSuccessRedirectPage />} />
 
             {/* User */}
             <Route path="/profile" element={<ProfilePage />} />
@@ -258,6 +253,7 @@ function AppShell({ setToast }) {
             <Route path="/regulamin" element={<RegulaminPage />} />
             <Route path="/polityka-prywatnosci" element={<PolitykaPrywatnosciPage />} />
             <Route path="/faq" element={<FAQPage />} />
+            <Route path="/contact" element={<ContactPage />} />
           </Routes>
         </Suspense>
       </main>
@@ -270,9 +266,23 @@ function AppShell({ setToast }) {
   );
 }
 
-/* ---------------- Root ---------------- */
+/* =========================================================
+   Root App Component
+   ========================================================= */
 export default function App() {
   const [toast, setToast] = useState("");
+
+  // ✅ „Miękkie” odświeżanie kategorii, gdy karta wraca na pierwszy plan
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        // sygnał dla CategoryNav / CategoryTiles / Hero chips
+        window.dispatchEvent(new CustomEvent("categories:refresh"));
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>

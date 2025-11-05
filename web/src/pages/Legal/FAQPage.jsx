@@ -4,23 +4,23 @@ import SeoHead from "../../components/SeoHead";
 const QA = [
   {
     q: "Jaki jest czas realizacji zamówienia?",
-    a: "Najczęściej 24–48h + czas dostawy przewoźnika. Dokładny czas podajemy w koszyku.",
+    a: "Na tym etapie prowadzimy przedsprzedaż naszych produktów. Czas realizacji zamówienia może wynieść do 30 dni od momentu jego złożenia. <br> Dziękujemy za cierpliwość i zaufanie — dokładamy wszelkich starań, aby Twoje zamówienie dotarło jak najszybciej ❤️",
   },
   {
     q: "Jakie metody płatności są dostępne?",
-    a: "Szybkie płatności, karta, BLIK, przelew tradycyjny; pobranie na wybranych produktach.",
+    a: "Szybkie płatności, karta, BLIK, płatność kryptowalutami (np. Bitcoin, Ethereum) oraz przelew tradycyjny; pobranie na wybranych produktach.",
   },
   {
     q: "Czy mogę zwrócić produkt?",
-    a: "Tak, masz 14 dni na odstąpienie od umowy (szczegóły w Regulaminie).",
+    a: "Tak, masz 14 dni na odstąpienie od umowy — termin ten liczy się od dnia otrzymania zamówienia (szczegóły w Regulaminie).",
   },
   {
     q: "Jak śledzić przesyłkę?",
-    a: "Po wysyłce dostaniesz link do śledzenia od przewoźnika oraz podgląd w panelu zamówień.",
+    a: "Po wysyłce otrzymasz link do śledzenia przesyłki, wysłany na adres e-mail podany podczas składania zamówienia.",
   },
   {
     q: "Jak skontaktować się z obsługą?",
-    a: 'Napisz na <a href="mailto:support@giftstore.pl">support@giftstore.pl</a> lub zadzwoń +48 123 456 789 (pn–pt 9:00–17:00).',
+    a: 'Napisz na <a href="mailto:support@giftstore.pl">support@giftstore.pl</a> lub skontaktuj się z nami poprzez <a href="/contact" class="text-red-600 underline">formularz kontaktowy</a>.',
   },
 ];
 

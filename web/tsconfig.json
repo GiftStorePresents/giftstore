@@ -1,19 +1,12 @@
 {
   "compilerOptions": {
-    /* Podstawy platformy/przeglądarki */
     "target": "ES2020",
     "lib": ["DOM", "DOM.Iterable", "ES2020"],
 
-    /* Moduły + JSX (Vite/React) */
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
 
-    /* Praca z plikami .js/.jsx obok .ts/.tsx */
-    "allowJs": true,
-    "checkJs": false,
-
-    /* Jakość i ergonomia */
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
@@ -21,26 +14,28 @@
     "isolatedModules": true,
     "noEmit": true,
 
-    /* Zgodność importów */
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
 
-    /* Typy środowiska (Vite + ewentualnie Node w toolingu) */
     "types": ["vite/client", "node"],
+    "allowJs": true,
+    "checkJs": false,
 
-    /* Aliasowanie ścieżek – patrz też baseUrl */
-    "baseUrl": "src",
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["*"],
-      "@data/*": ["data/*"],
-      "@components/*": ["components/*"]
+      "@/*": ["src/*"],
+      "@data/*": ["src/data/*"],
+      "@components/*": ["src/components/*"],
+      "@shared/*": ["../shared/*"]
     }
   },
   "include": [
     "src",
     "vite-env.d.ts",
-    "vite.config.ts"
+    "vite.config.ts",
+    "../shared/**/*.ts",
+    "../shared/**/*.tsx"
   ],
   "exclude": ["node_modules", "dist"]
 }

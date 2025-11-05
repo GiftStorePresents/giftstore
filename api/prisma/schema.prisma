@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -17,9 +19,9 @@ model AdminAction {
   actorId String
   actor   User   @relation("AdminActionsByActor", fields: [actorId], references: [id])
 
-  /// Np. "USER_SET_ROLE" | "USER_SOFT_BAN" | "PRODUCT_CREATE" | "PRODUCT_UPDATE" | "PRODUCT_SOFT_DELETE" | "VARIANT_PRICE_CHANGE"
+  /// Np. "USER_SET_ROLE" | "PRODUCT_CREATE" | "PRODUCT_UPDATE" | ...
   action     String
-  /// "User" | "Product" | "Variant" | "Article" (przykładowo)
+  /// "User" | "Product" | "Variant" | "Article" | ...
   entityType String
   entityId   String
 
@@ -44,7 +46,6 @@ model User {
   email      String    @unique
   name       String?
   password   String?
-  // ✔ Konto zweryfikowane, gdy data jest ustawiona (null = niezweryfikowane)
   verifiedAt DateTime?
 
   // Brute-force / sesje
@@ -81,8 +82,8 @@ model User {
   // Relacje do tokenów
   passwordResetTokens PasswordResetToken[]
   accounts            OAuthAccount[]
-  emailChangeTokens   EmailChangeToken[] // back-relacja do EmailChangeToken.user
-  smsCodes            SmsCode[] // back-relacja do SmsCode.user
+  emailChangeTokens   EmailChangeToken[]
+  smsCodes            SmsCode[]
 
   // Sesje refresh
   sessions Session[]
@@ -119,10 +120,10 @@ model Session {
 model EmailVerificationCode {
   id        String    @id @default(cuid())
   email     String
-  code      String // 6-cyfrowy kod (string, z wiodącymi zerami)
+  code      String
   expiresAt DateTime
   usedAt    DateTime?
-  attempts  Int       @default(0) // licznik błędnych prób
+  attempts  Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -134,6 +135,34 @@ model EmailVerificationCode {
 
 /**
  * =========================
+ * KATEGORIE
+ * =========================
+ */
+model Category {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  name         String
+
+  // miniatura/baner kategorii (opcjonalnie)
+  imageUrl     String?
+  showInHeader Boolean  @default(true)
+  showInTiles  Boolean  @default(true)
+  showInHero   Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@index([slug])
+  @@index([showInHeader])
+  @@index([showInTiles])
+  @@index([showInHero])
+  @@map("categories")
+}
+
+/**
+ * =========================
  * PRODUKTY / WARIANTY / MEDIA
  * =========================
  */
@@ -141,40 +170,47 @@ model Product {
   id          String   @id @default(cuid())
   slug        String   @unique
   name        String
-  description String
+  description String?
   brand       String?
-  category    String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // SOFT DELETE
-  deletedAt DateTime?
+  deletedAt   DateTime?
 
-  featured Boolean @default(false)
+  featured    Boolean  @default(false)
+
+  // ── Relacja do kategorii ──
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   media         Media[]
   variants      Variant[]
   wishlistItems WishlistItem[]
 
+  @@index([categoryId])
   @@map("products")
 }
 
 model Variant {
-  id          String  @id @default(cuid())
-  productId   String
-  sku         String  @unique
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  sku         String
   color       String?
   size        String?
   personalize Boolean @default(false)
   priceCents  Int
   stock       Int     @default(0)
 
-  cartItems CartItem[]
-  Product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  // Historia cen
+  cartItems    CartItem[]
   priceHistory VariantPriceHistory[]
 
+  @@unique([productId, sku], map: "variant_productId_sku_unique")
   @@index([productId])
   @@map("variants")
 }
@@ -185,7 +221,7 @@ model VariantPriceHistory {
   variant   Variant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
   oldPrice  Int
   newPrice  Int
-  changedBy String // userId (admin)
+  changedBy String
   createdAt DateTime @default(now())
 
   @@index([variantId, createdAt])
@@ -195,11 +231,10 @@ model VariantPriceHistory {
 model Media {
   id        String    @id @default(cuid())
   productId String
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
   url       String
   kind      MediaType
   position  Int       @default(0)
-
-  Product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([productId])
   @@map("media")
@@ -229,10 +264,9 @@ model CartItem {
   variantId String
   qty       Int    @default(1)
 
-  Cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  Variant Variant @relation(fields: [variantId], references: [id])
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variant Variant @relation(fields: [variantId], references: [id])
 
-  // jeden wariant może występować w danym koszyku tylko raz
   @@unique([cartId, variantId])
   @@index([variantId])
   @@map("cart_items")
@@ -259,10 +293,9 @@ model WishlistItem {
   wishlistId String
   productId  String
 
-  Product  Product  @relation(fields: [productId], references: [id])
-  Wishlist Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+  wishlist Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
 
-  // brak duplikatów tego samego produktu w jednej liście
   @@unique([wishlistId, productId])
   @@index([productId])
   @@map("wishlist_items")
@@ -287,8 +320,8 @@ model Order {
   subtotalCents         Int
   taxCents              Int @default(0)
   shippingCents         Int @default(0)
-  discountCents         Int @default(0) // snapshot rabatu
-  paymentSurchargeCents Int @default(0) // dopłata za płatność
+  discountCents         Int @default(0)
+  paymentSurchargeCents Int @default(0)
   totalCents            Int
 
   // wysyłka / kontakt
@@ -305,16 +338,14 @@ model Order {
   couponCode String?
 
   // ----- FAKTURY -----
-  /// czy klient poprosił o fakturę przy zamówieniu (checkbox w checkout)
   invoiceRequested   Boolean @default(false)
-  /// dane nabywcy do faktury
   invoiceCompanyName String?
   invoiceNip         String?
   invoiceAddr1       String?
   invoiceCity        String?
   invoiceZip         String?
-  invoiceCountry     String? // np. "PL"
-  invoiceEmail       String? // adres do wysyłki faktury (opcjonalnie)
+  invoiceCountry     String?
+  invoiceEmail       String?
 
   /// metadane wystawionej faktury
   invoiceIssuedAt DateTime?
@@ -328,7 +359,7 @@ model Order {
 
   items OrderItem[]
 
-  // ⬇ zwrotna relacja do CouponRedemption (naprawa relacji)
+  // zwrotna relacja do CouponRedemption (spójna nazwana relacja)
   couponRedemptions CouponRedemption[] @relation("OrderCouponRedemptions")
 
   @@index([userId])
@@ -346,12 +377,12 @@ model OrderItem {
   productId String?
   variantId String?
 
-  // denormalizacja na moment zakupu (SNAPSHOT)
+  // denormalizacja (SNAPSHOT) na moment zakupu
   name       String
   sku        String?
-  category   String? // snapshot kategorii produktu
+  category   String?
   qty        Int     @default(1)
-  priceCents Int // cena jednostkowa w groszach
+  priceCents Int
   color      String?
   size       String?
 
@@ -388,7 +419,7 @@ model MagicLinkToken {
   id        String    @id @default(cuid())
   email     String
   token     String    @unique
-  purpose   String    @default("login") // np. login, verify
+  purpose   String    @default("login")
   expiresAt DateTime
   usedAt    DateTime?
 
@@ -478,9 +509,9 @@ model Article {
   slug        String    @unique
   title       String
   excerpt     String?
-  content     String // Markdown lub HTML
+  content     String
   image       String?
-  tags        Json? // ["prezenty","dla-niej"]
+  tags        Json?
   published   Boolean   @default(false)
   publishedAt DateTime?
   createdAt   DateTime  @default(now())
@@ -526,14 +557,14 @@ model Coupon {
   id           String     @id @default(cuid())
   code         String     @unique
   type         CouponType
-  amount       Int? // dla FIXED, w groszach
-  percentage   Float? // dla PERCENT, np. 10 = 10%
+  amount       Int?
+  percentage   Float?
   validFrom    DateTime?
   validTo      DateTime?
   usageLimit   Int?
   usedCount    Int        @default(0)
   perUserLimit Int?
-  minOrder     Int? // minimalna wartość koszyka (grosze)
+  minOrder     Int?
   active       Boolean    @default(true)
   createdAt    DateTime   @default(now())
 
@@ -551,13 +582,26 @@ model CouponRedemption {
   usedAt   DateTime @default(now())
 
   coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
-  // nazwana relacja do Order (spójna z polem w Order)
   order  Order? @relation("OrderCouponRedemptions", fields: [orderId], references: [id], onDelete: SetNull)
 
   @@index([couponId, usedAt])
   @@index([userId])
   @@index([orderId])
   @@map("coupon_redemptions")
+}
+
+/**
+ * =========================
+ * USTAWIENIA SERWISU (JSON)
+ * =========================
+ */
+model SiteSetting {
+  key       String   @id
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("site_settings")
 }
 
 /**

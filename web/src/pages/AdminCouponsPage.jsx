@@ -1,10 +1,11 @@
 // src/pages/AdminCouponsPage.jsx
 import { useEffect, useMemo, useState } from "react";
 
+/* ====== API base ====== */
 const API = (import.meta?.env?.VITE_API_URL || "http://localhost:4000").replace(/\/+$/, "");
 const ADMIN = `${API}/api/admin`;
 
-/* =============== helpers =============== */
+/* ====== helpers (z oryginału + kosmetyka) ====== */
 function toZl(cents) {
   if (cents == null) return "";
   return (Math.round(Number(cents)) / 100).toLocaleString("pl-PL", {
@@ -50,7 +51,7 @@ async function fetchJsonWithReason(url, init = {}) {
     let msg = `HTTP ${r.status}`;
     if (json?.error) msg += ` – ${json.error}`;
     else if (json?.reason) msg += ` – ${json.reason}`;
-    else if (bodyText) msg += ` – ${bodyText.slice(0, 200)}`;
+    else if (bodyText) msg += ` – ${String(bodyText).slice(0, 200)}`;
     const err = new Error(msg);
     err.status = r.status;
     err.payload = json || bodyText;
@@ -59,7 +60,7 @@ async function fetchJsonWithReason(url, init = {}) {
   return json ?? bodyText;
 }
 
-/* =============== komponent =============== */
+/* ====== komponent ====== */
 export default function AdminCouponsPage() {
   // lista / filtry
   const [items, setItems] = useState([]);
@@ -86,13 +87,13 @@ export default function AdminCouponsPage() {
   const [importText, setImportText] = useState("");
   const [importPreview, setImportPreview] = useState([]);
   const [importMsg, setImportMsg] = useState("");
-  const [importErrors, setImportErrors] = useState([]); // <— lista błędów z backendu
+  const [importErrors, setImportErrors] = useState([]); // lista błędów z backendu
 
   // status
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
 
-  // ===== API: lista =====
+  /* ======= API: lista ======= */
   async function fetchList() {
     setLoading(true);
     setError("");
@@ -118,7 +119,7 @@ export default function AdminCouponsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== edycja =====
+  /* ======= edycja ======= */
   function startCreate() {
     setEditing(null);
     setForm({
@@ -255,7 +256,7 @@ export default function AdminCouponsPage() {
     }
   }
 
-  /* =============== IMPORT =============== */
+  /* ======= IMPORT ======= */
   function onPickFile(e) {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -397,7 +398,7 @@ export default function AdminCouponsPage() {
     // ujednolić cudzysłowy + klucze bez cudzysłowów + trailing commas + undefined
     s = s
       .replace(/'/g, '"')
-      .replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":') // { code: -> { "code":
+      .replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":')
       .replace(/,\s*}/g, "}")
       .replace(/,\s*]/g, "]")
       .replace(/:\s*undefined/g, ": null");
@@ -405,7 +406,6 @@ export default function AdminCouponsPage() {
     try {
       return JSON.parse(s);
     } catch {
-      // fallback: jeżeli ktoś podał sam środek bez zewn. klamer
       try {
         return JSON.parse(`{${s}}`);
       } catch {
@@ -414,7 +414,7 @@ export default function AdminCouponsPage() {
     }
   }
 
-  // =========== NOWY, bogatszy parser seedów (A–E) ===========
+  // =========== bogatszy parser seedów (A–E) ===========
   function tryParseSeedLike(rawText) {
     const text = normalizeSeedText(rawText);
     const results = [];
@@ -449,11 +449,9 @@ export default function AdminCouponsPage() {
       const reHead = /prisma\.coupon\.upsert\s*\(\s*{/g;
       let m;
       while ((m = reHead.exec(text))) {
-        const outerStart = m.index + m[0].length - 1; // na '{'
-        const outerObj = extractBracedObject(text, outerStart); // cały obiekt opcji upsert
-        // code z sekcji where:
+        const outerStart = m.index + m[0].length - 1;
+        const outerObj = extractBracedObject(text, outerStart);
         const codeMatch = outerObj.match(/code\s*:\s*(['"`])([\w\-]+)\1/);
-        // create body:
         const createHead = /create\s*:\s*{/.exec(outerObj);
         if (createHead) {
           const start = (outerObj.indexOf(createHead[0]) ?? -1) + createHead[0].length - 1;
@@ -495,7 +493,6 @@ export default function AdminCouponsPage() {
         if (arrPos >= 0) {
           const bracketIdx = outerObj.indexOf("[", arrPos);
           const arrLiteral = extractBracketedArray(outerObj, bracketIdx);
-          // przerób arrLiteral na JSON i sparsuj
           let s =
             String(arrLiteral)
               .replace(/\/\*[\s\S]*?\*\//g, "")
@@ -555,7 +552,7 @@ export default function AdminCouponsPage() {
   function makeImportPreview(text) {
     setImportMsg("");
 
-    // 1) Najpierw spróbuj zwykłego JSON:
+    // 1) JSON:
     const fromJson = tryParseJson(text);
     if (fromJson) {
       const mapped = fromJson.map(buildCreatePayload).filter((p) => p.code);
@@ -563,7 +560,7 @@ export default function AdminCouponsPage() {
       return;
     }
 
-    // 2) Potem seed-like (z normalizacją)
+    // 2) Seed-like:
     const fromSeed = tryParseSeedLike(text);
     if (fromSeed && fromSeed.length) {
       const mapped = fromSeed.map(buildCreatePayload).filter((p) => p.code);
@@ -587,7 +584,7 @@ export default function AdminCouponsPage() {
     setError("");
     setMsg("");
     setImportMsg("");
-    setImportErrors([]); // czyść stare błędy
+    setImportErrors([]);
     try {
       const data = await fetchJsonWithReason(`${ADMIN}/coupons/import`, {
         method: "POST",
@@ -617,7 +614,7 @@ export default function AdminCouponsPage() {
         headers: { Accept: "text/plain" },
       });
       const str = typeof txt === "string" ? txt : txt?.text || JSON.stringify(txt);
-      setImportText(str); // <— jak prosiłeś: zostaje
+      setImportText(str);
       setImportMsg("Załadowano zawartość prisma/seed.ts (podgląd niżej).");
       setShowImport(true);
     } catch (e) {
@@ -640,70 +637,97 @@ export default function AdminCouponsPage() {
     [form.type]
   );
 
-  /* =============== render =============== */
+  /* ======= render ======= */
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Kupony</h1>
+    <div className="admin-skin admin-page p-6 max-w-6xl mx-auto">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Kupony</h1>
+        <div className="flex items-center gap-2">
+          {loading && <span className="text-sm text-[var(--adm-muted)]">Ładowanie…</span>}
+          {msg && (
+            <span
+              className="admin-badge"
+              style={{ background: "#1f2d44", color: "#bcd9ff" }}
+              title="Powodzenie"
+            >
+              {msg}
+            </span>
+          )}
+          {error && (
+            <span
+              className="admin-badge"
+              style={{ background: "#3a1f24", color: "#ffdfe1" }}
+              title="Błąd"
+            >
+              {error}
+            </span>
+          )}
+        </div>
+      </div>
 
+      {/* Szukaj + akcje górne */}
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Szukaj (kod/typ)…"
-          className="border rounded px-3 py-2"
+          className="admin-input"
           onKeyDown={(e) => e.key === "Enter" && fetchList()}
         />
-        <button onClick={fetchList} className="px-3 py-2 rounded bg-black text-white">
+        <button onClick={fetchList} className="admin-btn primary">
           Szukaj
         </button>
         <button
           onClick={() => setShowImport((v) => !v)}
-          className="px-3 py-2 rounded border"
+          className="admin-btn"
           title="Pokaż/ukryj sekcję importu"
         >
           {showImport ? "Ukryj import" : "Importuj…"}
         </button>
         <button
           onClick={importFromSeedFile}
-          className="px-3 py-2 rounded border"
+          className="admin-btn"
           title="Wczytaj zawartość prisma/seed.ts (endpoint admin-only)"
         >
           Importuj z prisma/seed.ts
         </button>
-        {loading && <span className="text-sm text-gray-500 ml-2">Ładowanie…</span>}
-        {msg && <span className="text-sm text-green-700 ml-4">{msg}</span>}
-        {error && <span className="text-sm text-red-600 ml-4">{error}</span>}
       </div>
 
       {/* IMPORT */}
       {showImport && (
-        <div className="border rounded-lg p-4 mb-6 bg-white/80 w-full">
+        <div className="admin-card rounded-lg p-4 mb-6">
           <div className="font-semibold mb-2">Import kuponów (JSON lub „seed-like”)</div>
-          <p className="text-sm text-gray-600 mb-2">
-            Wklej JSON (np. <code>[{"{ code, type, percentage/amount, minOrder, active }"}]</code>)
-            albo fragment z <code>prisma/seed.ts</code>. Obsługiwane są bloki{" "}
-            <code>create: {"{ ... }"}</code>, wywołania{" "}
+          <p className="text-sm text-[var(--adm-muted)] mb-2">
+            Wklej JSON (np.{" "}
+            <code>[{"{ code, type, percentage/amount, minOrder, active }"}]</code>) albo fragment z{" "}
+            <code>prisma/seed.ts</code>. Obsługiwane: bloki <code>create: {"{ ... }"}</code>, wywołania{" "}
             <code>upsertCoupon("KOD", {"{ ... }"})</code>, a także{" "}
             <code>prisma.coupon.upsert</code>, <code>prisma.coupon.create</code> i{" "}
             <code>prisma.coupon.createMany</code>.
           </p>
           <div className="flex items-center gap-3 mb-2">
             <input type="file" accept=".json,.txt,.ts" onChange={onPickFile} />
-            {importMsg && <span className="text-sm text-green-700">{importMsg}</span>}
+            {importMsg && (
+              <span className="text-sm" style={{ color: "#bcd9ff" }}>
+                {importMsg}
+              </span>
+            )}
           </div>
           <textarea
             value={importText}
             onChange={(e) => setImportText(e.target.value)}
             rows={8}
-            className="w-full border rounded px-3 py-2 font-mono text-xs"
+            className="w-full admin-input font-mono text-xs"
             placeholder='Np. [{"code":"GIFT10","type":"PERCENT","percentage":10,"active":true}]'
           />
           <div className="mt-2 text-sm">
             Wykryto rekordów: <b>{importPreview.length}</b>
           </div>
           {importPreview.length > 0 && (
-            <div className="mt-2 max-h-40 overflow-auto text-xs bg-gray-50 border rounded p-2">
-              <pre>{JSON.stringify(importPreview, null, 2)}</pre>
+            <div className="mt-2 max-h-48 overflow-auto text-xs admin-card rounded p-2">
+              <pre className="whitespace-pre-wrap break-words">
+                {JSON.stringify(importPreview, null, 2)}
+              </pre>
             </div>
           )}
 
@@ -711,17 +735,20 @@ export default function AdminCouponsPage() {
           {importErrors.length > 0 && (
             <div className="mt-3">
               <div className="font-semibold mb-1">Błędy importu:</div>
-              <div className="max-h-40 overflow-auto text-xs bg-red-50 border border-red-200 rounded p-2">
+              <div
+                className="max-h-48 overflow-auto text-xs rounded p-2"
+                style={{ background: "#3a1f24", border: "1px solid rgba(255,223,225,.25)", color: "#ffdfe1" }}
+              >
                 <table className="min-w-full text-xs">
                   <thead>
-                    <tr className="text-left border-b">
+                    <tr className="text-left border-b border-[rgba(255,223,225,.25)]">
                       <th className="py-1 pr-3">Kod</th>
                       <th className="py-1">Komunikat</th>
                     </tr>
                   </thead>
                   <tbody>
                     {importErrors.map((e, i) => (
-                      <tr key={i} className="border-b">
+                      <tr key={i} className="border-b border-[rgba(255,223,225,.12)]">
                         <td className="py-1 pr-3">{e.code || "—"}</td>
                         <td className="py-1">{e.error || "failed"}</td>
                       </tr>
@@ -735,13 +762,14 @@ export default function AdminCouponsPage() {
           <div className="mt-3 flex gap-2">
             <button
               onClick={() => doImport(true)}
-              className="px-4 py-2 rounded bg-gold text-mainRed font-bold hover:bg-mainRed hover:text-gold"
+              className="admin-btn"
+              style={{ background: "var(--adm-head)", borderColor: "#FFD70033", fontWeight: 700 }}
             >
               Importuj (upsert)
             </button>
             <button
               onClick={() => doImport(false)}
-              className="px-4 py-2 rounded border"
+              className="admin-btn"
               title="Błąd gdy kupon już istnieje"
             >
               Importuj (tylko nowe)
@@ -751,26 +779,27 @@ export default function AdminCouponsPage() {
       )}
 
       {/* FORMULARZ */}
-      <div className="border rounded-lg p-4 mb-6">
+      <div className="admin-card rounded-lg p-4 mb-6">
         <div className="font-semibold mb-2">
           {editing ? `Edytuj: ${editing.code}` : "Nowy kupon"}
         </div>
-        <div className="grid grid-cols-2 gap-3">
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-600">Kod</label>
+            <label className="text-xs text-[var(--adm-muted)]">Kod</label>
             <input
               value={form.code}
               onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))}
-              className="border rounded px-3 py-2 w-full"
+              className="admin-input w-full"
               placeholder="np. ALL10"
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Typ</label>
+            <label className="text-xs text-[var(--adm-muted)]">Typ</label>
             <select
               value={form.type}
               onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
-              className="border rounded px-3 py-2 w-full"
+              className="admin-input w-full"
             >
               <option value="PERCENT">PERCENT</option>
               <option value="FIXED">FIXED</option>
@@ -779,78 +808,78 @@ export default function AdminCouponsPage() {
 
           {form.type === "PERCENT" ? (
             <div>
-              <label className="text-xs text-gray-600">{valueLabel}</label>
+              <label className="text-xs text-[var(--adm-muted)]">{valueLabel}</label>
               <input
                 type="number"
                 min={1}
                 max={100}
                 value={form.percentage}
                 onChange={(e) => setForm((f) => ({ ...f, percentage: e.target.value }))}
-                className="border rounded px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. 10"
               />
             </div>
           ) : (
             <div>
-              <label className="text-xs text-gray-600">{valueLabel}</label>
+              <label className="text-xs text-[var(--adm-muted)]">{valueLabel}</label>
               <input
                 type="number"
                 step="0.01"
                 value={form.amountZl}
                 onChange={(e) => setForm((f) => ({ ...f, amountZl: e.target.value }))}
-                className="border rounded px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. 15.00"
               />
             </div>
           )}
 
           <div>
-            <label className="text-xs text-gray-600">Min. koszyk (zł)</label>
+            <label className="text-xs text-[var(--adm-muted)]">Min. koszyk (zł)</label>
             <input
               type="number"
               step="0.01"
               value={form.minOrderZl}
               onChange={(e) => setForm((f) => ({ ...f, minOrderZl: e.target.value }))}
-              className="border rounded px-3 py-2 w-full"
+              className="admin-input w-full"
               placeholder="np. 200.00"
             />
           </div>
 
           <div>
-            <label className="text-xs text-gray-600">Limit globalny (opcjonalnie)</label>
+            <label className="text-xs text-[var(--adm-muted)]">Limit globalny (opcjonalnie)</label>
             <input
               type="number"
               value={form.usageLimit}
               onChange={(e) => setForm((f) => ({ ...f, usageLimit: e.target.value }))}
-              className="border rounded px-3 py-2 w-full"
+              className="admin-input w-full"
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Limit na użytkownika (opcjonalnie)</label>
+            <label className="text-xs text-[var(--adm-muted)]">Limit na użytkownika (opcjonalnie)</label>
             <input
               type="number"
               value={form.perUserLimit}
               onChange={(e) => setForm((f) => ({ ...f, perUserLimit: e.target.value }))}
-              className="border rounded px-3 py-2 w-full"
+              className="admin-input w-full"
             />
           </div>
 
           <div>
-            <label className="text-xs text-gray-600">Od (YYYY-MM-DD HH:MM)</label>
+            <label className="text-xs text-[var(--adm-muted)]">Od (YYYY-MM-DD HH:MM)</label>
             <input
               type="datetime-local"
               value={form.validFrom}
               onChange={(e) => setForm((f) => ({ ...f, validFrom: e.target.value }))}
-              className="border rounded px-3 py-2 w-full"
+              className="admin-input w-full"
             />
           </div>
           <div>
-            <label className="text-xs text-gray-600">Do (YYYY-MM-DD HH:MM)</label>
+            <label className="text-xs text-[var(--adm-muted)]">Do (YYYY-MM-DD HH:MM)</label>
             <input
               type="datetime-local"
               value={form.validTo}
               onChange={(e) => setForm((f) => ({ ...f, validTo: e.target.value }))}
-              className="border rounded px-3 py-2 w-full"
+              className="admin-input w-full"
             />
           </div>
 
@@ -867,74 +896,75 @@ export default function AdminCouponsPage() {
         <div className="mt-3 flex gap-2">
           <button
             onClick={save}
-            className="px-4 py-2 rounded bg-gold text-mainRed font-bold hover:bg-mainRed hover:text-gold"
+            className="admin-btn"
+            style={{ background: "var(--adm-head)", borderColor: "#FFD70033", fontWeight: 700 }}
           >
             {editing ? "Zapisz zmiany" : "Dodaj kupon"}
           </button>
-          <button onClick={startCreate} className="px-4 py-2 rounded border">
+          <button onClick={startCreate} className="admin-btn">
             Wyczyść formularz
           </button>
         </div>
       </div>
 
       {/* LISTA */}
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+      <div className="admin-table-wrap">
+        <table className="admin-table text-sm">
           <thead>
-            <tr className="text-left border-b">
-              <th className="py-2 pr-4">Kod</th>
-              <th className="py-2 pr-4">Typ / Wartość</th>
-              <th className="py-2 pr-4">Min. koszyk</th>
-              <th className="py-2 pr-4">Aktywny</th>
-              <th className="py-2 pr-4">Użyto</th>
-              <th className="py-2 pr-4">Okres</th>
-              <th className="py-2 pr-4">Akcje</th>
+            <tr>
+              <th className="text-left">Kod</th>
+              <th className="text-left">Typ / Wartość</th>
+              <th className="text-left">Min. koszyk</th>
+              <th className="text-left">Aktywny</th>
+              <th className="text-left">Użyto</th>
+              <th className="text-left">Okres</th>
+              <th className="text-left">Akcje</th>
             </tr>
           </thead>
           <tbody>
             {items.map((c) => (
-              <tr key={c.id} className="border-b">
-                <td className="py-2 pr-4 font-semibold">{c.code}</td>
-                <td className="py-2 pr-4">
+              <tr key={c.id}>
+                <td className="font-semibold">{c.code}</td>
+                <td>
                   {c.type === "PERCENT"
                     ? `PERCENT: ${c.percentage}%`
                     : `FIXED: ${toZl(c.amount)} zł`}
                 </td>
-                <td className="py-2 pr-4">
-                  {c.minOrder != null ? `${toZl(c.minOrder)} zł` : "—"}
-                </td>
-                <td className="py-2 pr-4">{c.active ? "✓" : "—"}</td>
-                <td className="py-2 pr-4">{c.usedCount ?? 0}</td>
-                <td className="py-2 pr-4">
+                <td>{c.minOrder != null ? `${toZl(c.minOrder)} zł` : "—"}</td>
+                <td className="text-center">{c.active ? "✓" : "—"}</td>
+                <td className="text-center">{c.usedCount ?? 0}</td>
+                <td className="whitespace-nowrap">
                   {(c.validFrom ? new Date(c.validFrom).toLocaleString("pl-PL") : "—") +
                     " → " +
                     (c.validTo ? new Date(c.validTo).toLocaleString("pl-PL") : "—")}
                 </td>
-                <td className="py-2 pr-4 space-x-2">
-                  <button className="px-2 py-1 border rounded" onClick={() => startEdit(c)}>
-                    Edytuj
-                  </button>
-                  <button className="px-2 py-1 border rounded" onClick={() => toggle(c)}>
-                    {c.active ? "Wyłącz" : "Włącz"}
-                  </button>
-                  <button className="px-2 py-1 border rounded" onClick={() => resetUsedCount(c)}>
-                    Resetuj licznik
-                  </button>
-                  <button className="px-2 py-1 border rounded" onClick={() => previewValidate(c)}>
-                    Podgląd rabatu
-                  </button>
-                  <button
-                    className="px-2 py-1 border rounded text-red-600"
-                    onClick={() => remove(c)}
-                  >
-                    Usuń
-                  </button>
+                <td>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="admin-btn px-2 py-1" onClick={() => startEdit(c)}>
+                      Edytuj
+                    </button>
+                    <button className="admin-btn px-2 py-1" onClick={() => toggle(c)}>
+                      {c.active ? "Wyłącz" : "Włącz"}
+                    </button>
+                    <button className="admin-btn px-2 py-1" onClick={() => resetUsedCount(c)}>
+                      Resetuj licznik
+                    </button>
+                    <button className="admin-btn px-2 py-1" onClick={() => previewValidate(c)}>
+                      Podgląd rabatu
+                    </button>
+                    <button
+                      className="admin-btn danger px-2 py-1"
+                      onClick={() => remove(c)}
+                    >
+                      Usuń
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
             {!items.length && (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-gray-500">
+                <td colSpan={7} className="px-3 py-6 text-center text-[var(--adm-muted)]">
                   Brak kuponów.
                 </td>
               </tr>

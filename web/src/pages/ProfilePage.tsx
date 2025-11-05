@@ -4,11 +4,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { Heart, ShoppingCart, User } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { api, API_BASE } from "../api";
+import { useTheme } from "../context/ThemeContext";
 
-// Nazwa CSRF cookie MUSI zgadzać się z backendem (src/middleware/csrf.ts)
+/* ===== CSRF ===== */
 const CSRF_COOKIE_NAME = "csrf";
-
-// Prosty helper do pobierania wartości ciasteczka
 function getCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
   const match = document.cookie.match(
@@ -20,6 +19,7 @@ function getCookie(name: string): string | null {
 export default function ProfilePage() {
   const { user, setUser, logout } = useAuth();
   const navigate = useNavigate();
+  const { theme } = useTheme(); // <- do dark/light
 
   const [loading, setLoading] = useState(true);
 
@@ -34,7 +34,7 @@ export default function ProfilePage() {
   const [changingPwd, setChangingPwd] = useState(false);
   const [pwdMsg, setPwdMsg] = useState("");
 
-  // Zmiana e‑maila (start)
+  // Zmiana e-maila (start)
   const [newEmail, setNewEmail] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailMsg, setEmailMsg] = useState("");
@@ -115,17 +115,10 @@ export default function ProfilePage() {
           const ct = res.headers.get("content-type") || "";
           if (ct.includes("application/json")) {
             const j = await res.json();
-            if (res.status === 400 && j?.error) {
-              // ✅ to jest Twój obecny email
-              msg = j.error;
-            } else if (res.status === 409 && j?.error) {
-              // ✅ email zajęty
-              msg = j.error;
-            } else if (typeof j?.error === "string") {
-              msg = j.error;
-            } else if (typeof j?.message === "string") {
-              msg = j.message;
-            }
+            if (res.status === 400 && j?.error) msg = j.error;     // obecny e-mail
+            else if (res.status === 409 && j?.error) msg = j.error; // e-mail zajęty
+            else if (typeof j?.error === "string") msg = j.error;
+            else if (typeof j?.message === "string") msg = j.message;
           } else {
             const t = await res.text();
             if (t) msg = t;
@@ -172,7 +165,6 @@ export default function ProfilePage() {
         throw new Error(msg);
       }
 
-      // Sukces: backend wyczyścił cookie w tej przeglądarce + unieważnił wszystkie JWT
       setLogoutAllMsg("Wylogowano ze wszystkich urządzeń.");
       setUser(null);
       navigate("/login");
@@ -186,174 +178,245 @@ export default function ProfilePage() {
   if (loading) return <div className="p-8 text-center">Ładowanie…</div>;
   if (!user) return null;
 
+  /* ===== lokalne style z motywem ===== */
+  const styles = (
+    <style>{`
+      .profile-page[data-theme="dark"] {
+        --card-bg: #0f1524;
+        --ink: #e9eef7;
+        --muted: #9bb0c9;
+        --border: rgba(255,255,255,0.12);
+        --input-bg: #0b1220;
+        --input-br: rgba(255,255,255,0.14);
+        --input-ph: #8ea2bb;
+      }
+      .profile-page[data-theme="light"] {
+        --card-bg: #ffffff;
+        --ink: #0b1220;
+        --muted: #6b7280;
+        --border: rgba(20,23,28,0.12);
+        --input-bg: #ffffff;
+        --input-br: #d1d5db;
+        --input-ph: #9ca3af;
+      }
+
+      .prof-card {
+        background: var(--card-bg);
+        color: var(--ink);
+        border-color: #f5c542; /* gold */
+      }
+      .prof-muted { color: var(--muted); }
+      .prof-input {
+        background: var(--input-bg);
+        color: var(--ink);
+        border: 1px solid var(--input-br);
+        border-radius: 0.75rem;
+        height: 2.5rem;
+        padding: 0 0.75rem;
+        outline: none;
+      }
+      .prof-input::placeholder { color: var(--input-ph); }
+      .prof-input:focus {
+        border-color: #f5c542;
+        box-shadow: 0 0 0 2px rgba(245, 197, 66, .45);
+      }
+      .prof-link { color: var(--ink); }
+      .prof-link:hover { color: #f5c542; }
+      .btn { border-radius: .75rem; font-weight: 700; padding: .5rem 1rem; }
+      .btn-primary { background:#c7161f; color:#fff; }
+      .btn-primary:hover { background:#f5c542; color:#8a0f0f; }
+      .btn-dark { background:#111; color:#fff; }
+      .btn-dark:hover { background:#000; }
+      .btn-neutral { background:#fff; color:#1f2937; border:1px solid #d1d5db; }
+      .btn-neutral:hover { background:#f8fafc; }
+      .badge-ok {
+        display:inline-block; font-size:12px; padding:.25rem .6rem;
+        border-radius:999px; background:#e6f7ed; color:#116a38; border:1px solid #b7e3c7;
+      }
+      .badge-err {
+        display:inline-block; font-size:12px; padding:.25rem .6rem;
+        border-radius:999px; background:#ffe8ea; color:#a3122f; border:1px solid #ffc8cf;
+      }
+      .divider { border-color: var(--border); }
+    `}</style>
+  );
+
   return (
-    <div className="bg-white rounded-3xl shadow-xl p-8 max-w-3xl mx-auto mt-10 border-2 border-gold">
-      {/* Nagłówek profilu */}
-      <div className="flex items-center gap-4 mb-8">
-        <span className="text-mainRed">
-          <User size={36} />
-        </span>
-        <div>
-          <div className="text-2xl font-bold text-mainRed break-all">{user.email}</div>
-          <div className="text-gray-500 text-sm">Twój profil klienta</div>
+    <section
+      className="profile-page mx-auto mt-10 max-w-3xl"
+      data-theme={theme}
+    >
+      {styles}
+
+      <div className="prof-card rounded-3xl border-2 shadow-xl p-8">
+        {/* Nagłówek profilu */}
+        <div className="mb-8 flex items-center gap-4">
+          <span className="text-mainRed">
+            <User size={36} />
+          </span>
+          <div>
+            <div className="break-all text-2xl font-bold text-mainRed">{user.email}</div>
+            <div className="prof-muted text-sm">Twój profil klienta</div>
+          </div>
         </div>
-      </div>
 
-      {/* Szybka nawigacja */}
-      <div className="flex flex-col sm:flex-row gap-6 mb-10">
-        <Link to="/profile" className="font-bold hover:text-gold flex items-center gap-2">
-          <span>
-            <User size={18} />
-          </span>{" "}
-          Dane i konto
-        </Link>
-        <Link to="/wishlist" className="font-bold hover:text-gold flex items-center gap-2">
-          <span className="text-gold">
-            <Heart size={18} />
-          </span>{" "}
-          Ulubione
-        </Link>
-        <Link to="/orders" className="font-bold hover:text-gold flex items-center gap-2">
-          <span className="text-gold">
-            <ShoppingCart size={18} />
-          </span>{" "}
-          Zamówienia
-        </Link>
-      </div>
+        {/* Szybka nawigacja */}
+        <div className="mb-10 flex flex-col gap-6 sm:flex-row">
+          <Link to="/profile" className="prof-link flex items-center gap-2 font-bold">
+            <User size={18} /> Dane i konto
+          </Link>
+          <Link to="/wishlist" className="prof-link flex items-center gap-2 font-bold">
+            <Heart size={18} className="text-gold" /> Ulubione
+          </Link>
+          <Link to="/orders" className="prof-link flex items-center gap-2 font-bold">
+            <ShoppingCart size={18} className="text-gold" /> Zamówienia
+          </Link>
+        </div>
 
-      {/* Dane podstawowe */}
-      <section className="mb-10">
-        <h3 className="font-bold text-gold text-lg mb-3">Dane profilu</h3>
-        <form onSubmit={saveProfile} className="grid gap-3 max-w-md">
-          <label className="text-sm font-semibold text-gray-700" htmlFor="name">
-            Imię / nazwa wyświetlana
-          </label>
-          <input
-            id="name"
-            className="w-full p-2 rounded border outline-none focus:ring-2 focus:ring-gold"
-            placeholder="Twoje imię"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+        {/* Dane podstawowe */}
+        <section className="mb-10">
+          <h3 className="mb-3 text-lg font-bold text-gold">Dane profilu</h3>
+          <form onSubmit={saveProfile} className="grid max-w-md gap-3">
+            <label className="text-sm font-semibold" htmlFor="name">
+              Imię / nazwa wyświetlana
+            </label>
+            <input
+              id="name"
+              className="prof-input w-full"
+              placeholder="Twoje imię"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={savingProfile}
+                className={`btn btn-primary ${savingProfile ? "opacity-60 cursor-not-allowed" : ""}`}
+              >
+                {savingProfile ? "Zapisuję…" : "Zapisz profil"}
+              </button>
+              {profileMsg && (
+                <span className={/bł|nie udało/i.test(profileMsg) ? "badge-err" : "badge-ok"}>
+                  {profileMsg}
+                </span>
+              )}
+            </div>
+          </form>
+        </section>
+
+        {/* Zmiana e-maila */}
+        <section className="mb-10">
+          <h3 className="mb-3 text-lg font-bold text-gold">Zmiana e-maila</h3>
+          <p className="prof-muted mb-3 text-xs">
+            Wyślemy link potwierdzający na nowy adres. Po potwierdzeniu nastąpi wylogowanie
+            na wszystkich urządzeniach.
+          </p>
+          <form onSubmit={startChangeEmail} className="grid max-w-md gap-3">
+            <label className="text-sm font-semibold" htmlFor="new-email">
+              Nowy e-mail
+            </label>
+            <input
+              id="new-email"
+              type="email"
+              className="prof-input w-full"
+              placeholder="nowy@adres.pl"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              required
+            />
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={emailBusy}
+                className={`btn btn-primary ${emailBusy ? "opacity-60 cursor-not-allowed" : ""}`}
+              >
+                {emailBusy ? "Wysyłam link…" : "Wyślij link potwierdzający"}
+              </button>
+              {emailMsg && (
+                <span className={/bł|nie udało/i.test(emailMsg) ? "badge-err" : "badge-ok"}>
+                  {emailMsg}
+                </span>
+              )}
+            </div>
+          </form>
+        </section>
+
+        {/* Zmiana hasła */}
+        <section className="mb-6">
+          <h3 className="mb-3 text-lg font-bold text-gold">Zmiana hasła</h3>
+          <p className="prof-muted mb-3 text-xs">
+            Jeśli konto utworzono przez Google/Magic (bez hasła), pole „Obecne hasło” zostaw puste.
+          </p>
+          <form onSubmit={changePassword} className="grid max-w-md gap-3">
+            <label className="text-sm font-semibold" htmlFor="current-password">
+              Obecne hasło
+            </label>
+            <input
+              id="current-password"
+              type="password"
+              className="prof-input w-full"
+              placeholder="(zostaw puste, jeśli konto bez hasła)"
+              value={curPwd}
+              onChange={(e) => setCurPwd(e.target.value)}
+            />
+
+            <label className="text-sm font-semibold" htmlFor="new-password">
+              Nowe hasło
+            </label>
+            <input
+              id="new-password"
+              type="password"
+              minLength={6}
+              required
+              className="prof-input w-full"
+              placeholder="min. 6 znaków"
+              value={newPwd}
+              onChange={(e) => setNewPwd(e.target.value)}
+            />
+
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={changingPwd}
+                className={`btn btn-dark ${changingPwd ? "opacity-60 cursor-not-allowed" : ""}`}
+              >
+                {changingPwd ? "Zmieniam…" : "Zmień hasło"}
+              </button>
+              {pwdMsg && (
+                <span className={/bł|nie udało/i.test(pwdMsg) ? "badge-err" : "badge-ok"}>
+                  {pwdMsg}
+                </span>
+              )}
+            </div>
+          </form>
+        </section>
+
+        <hr className="divider my-8" />
+
+        {/* Wylogowanie */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <button onClick={logout} className="btn btn-primary">
+            Wyloguj się (to urządzenie)
+          </button>
+
           <button
-            type="submit"
-            disabled={savingProfile}
-            className={`w-fit rounded px-4 py-2 font-bold transition ${
-              savingProfile
-                ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-                : "bg-mainRed text-white hover:bg-gold hover:text-mainRed"
+            onClick={logoutAllDevices}
+            disabled={logoutAllBusy}
+            className={`btn btn-neutral ${logoutAllBusy ? "opacity-60 cursor-not-allowed" : ""}`}
+          >
+            {logoutAllBusy ? "Wylogowuję…" : "Wyloguj ze wszystkich urządzeń"}
+          </button>
+        </div>
+        {logoutAllMsg && (
+          <p
+            className={`mt-3 text-sm ${
+              /bł|nie udało/i.test(logoutAllMsg) ? "text-rose-500" : "text-emerald-600"
             }`}
           >
-            {savingProfile ? "Zapisuję…" : "Zapisz profil"}
-          </button>
-          {profileMsg && <p className="text-sm mt-1">{profileMsg}</p>}
-        </form>
-      </section>
-
-      {/* Zmiana e‑maila */}
-      <section className="mb-10">
-        <h3 className="font-bold text-gold text-lg mb-3">Zmiana e‑maila</h3>
-        <p className="text-xs text-gray-600 mb-3">
-          Wyślemy link potwierdzający na nowy adres. Po potwierdzeniu nastąpi wylogowanie na wszystkich urządzeniach.
-        </p>
-        <form onSubmit={startChangeEmail} className="grid gap-3 max-w-md">
-          <label className="text-sm font-semibold text-gray-700" htmlFor="new-email">
-            Nowy e‑mail
-          </label>
-          <input
-            id="new-email"
-            type="email"
-            className="w-full p-2 rounded border outline-none focus:ring-2 focus:ring-gold"
-            placeholder="nowy@adres.pl"
-            value={newEmail}
-            onChange={(e) => setNewEmail(e.target.value)}
-            required
-          />
-          <button
-            type="submit"
-            disabled={emailBusy}
-            className={`w-fit rounded px-4 py-2 font-bold transition ${
-              emailBusy
-                ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-                : "bg-mainRed text-white hover:bg-gold hover:text-mainRed"
-            }`}
-          >
-            {emailBusy ? "Wysyłam link…" : "Wyślij link potwierdzający"}
-          </button>
-          {emailMsg && <p className="text-sm mt-1">{emailMsg}</p>}
-        </form>
-      </section>
-
-      {/* Zmiana hasła */}
-      <section className="mb-6">
-        <h3 className="font-bold text-gold text-lg mb-3">Zmiana hasła</h3>
-        <p className="text-xs text-gray-600 mb-3">
-          Jeśli konto utworzono przez Google/Magic (bez hasła), pole „Obecne hasło” zostaw puste.
-        </p>
-        <form onSubmit={changePassword} className="grid gap-3 max-w-md">
-          <label className="text-sm font-semibold text-gray-700" htmlFor="current-password">
-            Obecne hasło
-          </label>
-          <input
-            id="current-password"
-            type="password"
-            className="w-full p-2 rounded border outline-none focus:ring-2 focus:ring-gold"
-            placeholder="(zostaw puste, jeśli konto bez hasła)"
-            value={curPwd}
-            onChange={(e) => setCurPwd(e.target.value)}
-          />
-
-          <label className="text-sm font-semibold text-gray-700" htmlFor="new-password">
-            Nowe hasło
-          </label>
-          <input
-            id="new-password"
-            type="password"
-            minLength={6}
-            required
-            className="w-full p-2 rounded border outline-none focus:ring-2 focus:ring-gold"
-            placeholder="min. 6 znaków"
-            value={newPwd}
-            onChange={(e) => setNewPwd(e.target.value)}
-          />
-
-          <button
-            type="submit"
-            disabled={changingPwd}
-            className={`w-fit rounded px-4 py-2 font-bold transition ${
-              changingPwd ? "bg-gray-300 text-gray-600" : "bg-black text-white hover:bg-gray-900"
-            }`}
-          >
-            {changingPwd ? "Zmieniam…" : "Zmień hasło"}
-          </button>
-          {pwdMsg && <p className="text-sm mt-1">{pwdMsg}</p>}
-        </form>
-      </section>
-
-      <hr className="my-8" />
-
-      {/* Wylogowanie */}
-      <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-        <button
-          onClick={logout}
-          className="bg-mainRed text-white px-6 py-2 rounded-xl font-bold hover:bg-gold hover:text-mainRed transition"
-        >
-          Wyloguj się (to urządzenie)
-        </button>
-
-        <button
-          onClick={logoutAllDevices}
-          disabled={logoutAllBusy}
-          className={`px-6 py-2 rounded-xl font-bold border transition ${
-            logoutAllBusy
-              ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-              : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
-          }`}
-        >
-          {logoutAllBusy ? "Wylogowuję…" : "Wyloguj ze wszystkich urządzeń"}
-        </button>
+            {logoutAllMsg}
+          </p>
+        )}
       </div>
-      {logoutAllMsg && <p className="text-sm mt-3">{logoutAllMsg}</p>}
-    </div>
+    </section>
   );
 }

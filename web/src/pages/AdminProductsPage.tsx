@@ -1,8 +1,20 @@
 // src/pages/AdminProductsPage.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+// =================================================================================================
+//  AdminProductsPage — produkcyjny panel zarządzania produktami
+//  Build: 2025-10-30 (prod)  |  Patch: 2025-11-02
+//  Zmiany (patch):
+//   • Modale mają max-h i wewnętrzny scroll (max-h-[90vh]/[85vh] + overflow-y-auto + shadow)
+//   • Naprawa podglądu obrazka (bez podwójnego buildImageUrl)
+// =================================================================================================
+
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { api, API_BASE, ensureCsrf } from "../api";
+import { createPortal } from "react-dom";
 
+/* ================================================================================================
+   Typy
+================================================================================================ */
 type VariantRow = {
   id: string;
   priceCents: number;
@@ -12,26 +24,38 @@ type VariantRow = {
   size?: string | null;
   personalize?: boolean | null;
 };
+
 type MediaRow = {
   id: string;
   url: string;
   kind: "image" | "video" | "spin360";
   position: number;
 };
+
+type CategoryRel = { id: string; name: string; slug: string };
+type CategoryField = CategoryRel | string | null | undefined;
+
 type ProductRow = {
   id: string;
   name: string;
   slug: string;
   description?: string | null;
   brand?: string | null;
-  category?: string | null;
+  category?: CategoryField;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
   variants: VariantRow[];
   media?: MediaRow[];
   featured?: boolean;
+  // Fallbacki obrazu (np. z seeda lub starszego API)
+  imageUrl?: string;
+  image?: string;
 };
+
+/* ================================================================================================
+   Utils
+================================================================================================ */
 
 function computeMinPrice(variants: VariantRow[] | undefined | null): number | null {
   if (!Array.isArray(variants) || variants.length === 0) return null;
@@ -40,17 +64,12 @@ function computeMinPrice(variants: VariantRow[] | undefined | null): number | nu
   return Math.min(...vals);
 }
 
-// cookies
 function getCookie(name: string) {
   return (
-    document.cookie
-      .split("; ")
-      .find((row) => row.startsWith(name + "="))
-      ?.split("=")[1] || ""
+    document.cookie.split("; ").find((row) => row.startsWith(name + "="))?.split("=")[1] || ""
   );
 }
 
-// czytelne błędy z fetch
 async function readError(res: Response) {
   try {
     const txt = await res.text();
@@ -65,7 +84,39 @@ async function readError(res: Response) {
   }
 }
 
-// upload z fallbackami (primary: /upload-image, alias: /images; pole: file->image)
+function coerceCategorySlug(category: CategoryField): string {
+  if (!category) return "";
+  if (typeof category === "string") return category;
+  if (typeof category === "object" && (category as any)?.slug) return (category as any).slug;
+  return "";
+}
+
+function pickProductShape(res: any, wantedId?: string): ProductRow | null {
+  if (res?.product && typeof res.product === "object") return res.product as ProductRow;
+  if (res?.data?.product && typeof res.data.product === "object") return res.data.product as ProductRow;
+  if (res && typeof res === "object" && "id" in res && "name" in res && "slug" in res) {
+    return res as ProductRow;
+  }
+  if (Array.isArray(res?.items)) {
+    if (wantedId) {
+      const found = res.items.find((x: any) => x?.id === wantedId);
+      if (found) return found as ProductRow;
+    }
+    if (res.items.length) return res.items[0] as ProductRow;
+  }
+  return null;
+}
+
+// Buduje pełny URL dla miniatur (API_BASE dla ścieżek względnych)
+function buildImageUrl(u?: string): string {
+  if (!u) return "";
+  if (/^https?:\/\//i.test(u)) return u;
+  return `${API_BASE}${u.startsWith("/") ? u : `/${u}`}`;
+}
+
+/* ================================================================================================
+   Upload obrazków — fallback końcówek i nazw pól
+================================================================================================ */
 async function uploadProductImageDirect(productId: string, file: File) {
   await ensureCsrf();
   const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
@@ -82,18 +133,15 @@ async function uploadProductImageDirect(productId: string, file: File) {
     });
   };
 
-  // 1) /upload-image z polem "file"
-  let res = await sendOnce("/upload-image", "file");
+  let lastSuffix: "/upload-image" | "/images" = "/upload-image";
+  let res = await sendOnce(lastSuffix, "file");
 
-  // 404/405 → alias /images
   if (res.status === 404 || res.status === 405) {
-    res = await sendOnce("/images", "file");
+    lastSuffix = "/images";
+    res = await sendOnce(lastSuffix, "file");
   }
-
-  // 400/415 → spróbuj to samo z polem "image"
   if (res.status === 400 || res.status === 415) {
-    const usedImages = res.url.includes("/images");
-    res = await sendOnce(usedImages ? "/images" : "/upload-image", "image");
+    res = await sendOnce(lastSuffix, "image");
   }
 
   if (!res.ok) throw new Error(await readError(res));
@@ -101,7 +149,9 @@ async function uploadProductImageDirect(productId: string, file: File) {
   return data;
 }
 
-// Natywny picker (Chrome/Edge). Zwraca File albo null (gdy anulowano/nieobsługiwane).
+/* ================================================================================================
+   Natywny file picker (z bezpiecznym powrotem focusu)
+================================================================================================ */
 async function pickImageViaNativePicker(): Promise<File | null> {
   const anyWin = window as any;
   try {
@@ -110,12 +160,7 @@ async function pickImageViaNativePicker(): Promise<File | null> {
 
     const [handle] = await anyWin.showOpenFilePicker({
       multiple: false,
-      types: [
-        {
-          description: "Obrazy",
-          accept: { "image/*": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"] },
-        },
-      ],
+      types: [{ description: "Obrazy", accept: { "image/*": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"] } }],
       excludeAcceptAllOption: false,
     });
     const file: File = await handle.getFile();
@@ -129,12 +174,20 @@ async function pickImageViaNativePicker(): Promise<File | null> {
   }
 }
 
+/* ================================================================================================
+   Strona
+================================================================================================ */
 export default function AdminProductsPage() {
   const [items, setItems] = useState<ProductRow[]>([]);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [q, setQ] = useState("");
   const [withDeleted, setWithDeleted] = useState(false);
+  const [category, setCategory] = useState<string>("");
+  const [onlyFeatured, setOnlyFeatured] = useState<boolean>(false);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const allSelected = items.length > 0 && selectedIds.size === items.length;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -143,50 +196,118 @@ export default function AdminProductsPage() {
   const [bulkBusy, setBulkBusy] = useState<null | string>(null);
   const [uploadBusyProductId, setUploadBusyProductId] = useState<string | null>(null);
 
-  // globalny ukryty input – fallback dla przeglądarek bez showOpenFilePicker
   const hiddenInputRef = useRef<HTMLInputElement | null>(null);
   const [hiddenTargetId, setHiddenTargetId] = useState<string | null>(null);
 
   const isDev = import.meta.env.DEV;
 
-  async function load() {
+  // lokalny toast
+  const [toast, setToast] = useState<string | null>(null);
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 4000);
+  }, []);
+
+  // ładowanie listy
+  const load = useCallback(async () => {
     try {
-      const res = await api.admin.products(page, 20, q, withDeleted);
-      setItems(res.items);
-      setPages(res.pages);
+      const res = await api.admin.products(
+        page,
+        20,
+        q,
+        withDeleted,
+        {
+          category: category.trim() || undefined,
+          featured: !!onlyFeatured,
+        }
+      );
+      setItems(res.items || []);
+      setPages(res.pages || 1);
+      setSelectedIds(new Set());
     } catch (err: any) {
       console.error("[AdminProductsPage] load() failed:", err);
       alert(err?.message || "Nie udało się pobrać listy produktów.");
     }
-  }
+  }, [page, q, withDeleted, category, onlyFeatured]);
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, withDeleted]);
+  }, [load]);
 
-  const firstProductId = useMemo(() => items[0]?.id || "", [items]);
+  const reloadProducts = load;
 
-  // ====== AKCJE MASOWE ======
+  // seed popular (SAFE → helper → fetch fallback)
+  const runSeed = useCallback(async () => {
+    try {
+      const safe = (api as any)?.admin?.seedPopularSafe as
+        | ((mode?: "insert" | "upsert") => Promise<{ ok: boolean; status?: number; message?: string; data: any }>)
+        | undefined;
+
+      const toastFrom = (data: any) => {
+        const added   = Number(data?.added   ?? data?.createdCount ?? (Array.isArray(data?.created) ? data.created.length : 0) ?? 0);
+        const updated = Number(data?.updated ?? data?.updatedCount ?? 0);
+        const restored= Number(data?.restored?? data?.restoredCount?? 0);
+        const skipped = Number(data?.skipped ?? data?.skippedCount ?? 0);
+        return `✅ Seed OK: dodano=${added}, zaktualizowano=${updated}, przywrócono=${restored}, pominięto=${skipped}`;
+      };
+
+      if (typeof safe === "function") {
+        const r = await safe("upsert");
+        if (!r.ok) {
+          const msg = `❌ Seed failed${r.status ? ` [${r.status}]` : ""}: ${r.message || "Unknown error"}`;
+          console.error("seedPopularSafe error:", r);
+          showToast(msg);
+          return;
+        }
+        showToast(toastFrom(r.data));
+        setPage(1);
+        await reloadProducts();
+        return;
+      }
+
+      const viaHelper = api?.admin?.seedPopular;
+      if (typeof viaHelper === "function") {
+        const data: any = await viaHelper("upsert");
+        showToast(toastFrom(data));
+        setPage(1);
+        await reloadProducts();
+        return;
+      }
+
+      await ensureCsrf();
+      const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
+      const res = await fetch(`${API_BASE}/api/admin/seed/popular`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+        body: JSON.stringify({ mode: "upsert" }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json().catch(() => ({}));
+      showToast(toastFrom(data));
+      setPage(1);
+      await reloadProducts();
+    } catch (e: any) {
+      console.error("[runSeed SAFE] error:", e);
+      showToast(e?.message || "Seed nie powiódł się.");
+    }
+  }, [reloadProducts, showToast]);
+
+  /* ---------------------------------------------------------------------------------------------
+     Akcje masowe: WSZYSTKIE
+  --------------------------------------------------------------------------------------------- */
   async function bulkSoftDeleteAll() {
     if (!confirm("Na pewno USUNĄĆ (soft) WSZYSTKIE produkty?")) return;
     setBulkBusy("soft-all");
     try {
       await ensureCsrf();
-      const csrf = getCookie("csrf");
-      let res = await fetch(`${API_BASE}/api/admin/products/all`, {
+      const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
+      const res = await fetch(`${API_BASE}/api/admin/products`, {
         method: "DELETE",
         credentials: "include",
-        headers: { "X-CSRF-Token": csrf },
+        headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
       });
-      if (res.status === 404) {
-        res = await fetch(`${API_BASE}/api/admin/products`, {
-          method: "DELETE",
-          credentials: "include",
-          headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-          body: JSON.stringify({ all: true }),
-        });
-      }
       if (!res.ok) throw new Error(await readError(res));
       alert("Wykonano soft-delete wszystkich produktów.");
       setPage(1);
@@ -204,20 +325,13 @@ export default function AdminProductsPage() {
     setBulkBusy("hard-all");
     try {
       await ensureCsrf();
-      const csrf = getCookie("csrf");
-      let res = await fetch(`${API_BASE}/api/admin/products/all?hard=1`, {
+      const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
+      const res = await fetch(`${API_BASE}/api/admin/products`, {
         method: "DELETE",
         credentials: "include",
-        headers: { "X-CSRF-Token": csrf },
+        headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true, force: true }),
       });
-      if (res.status === 404) {
-        res = await fetch(`${API_BASE}/api/admin/products`, {
-          method: "DELETE",
-          credentials: "include",
-          headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-          body: JSON.stringify({ all: true, force: true }),
-        });
-      }
       if (!res.ok) throw new Error(await readError(res));
       alert("Wykonano TRWAŁE usunięcie wszystkich produktów.");
       setPage(1);
@@ -230,29 +344,51 @@ export default function AdminProductsPage() {
     }
   }
 
+  /* ---------------------------------------------------------------------------------------------
+     Akcje masowe na zaznaczonych wierszach
+  --------------------------------------------------------------------------------------------- */
+  async function bulkSoftDeleteSelected() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Usunąć (soft) zaznaczone ${selectedIds.size} produktów?`)) return;
+    try {
+      await api.admin.deleteProductsBulk([...selectedIds]);
+      setSelectedIds(new Set());
+      await load();
+    } catch (err: any) {
+      console.error("[bulkSoftDeleteSelected]", err);
+      alert(err?.message || "Nie udało się usunąć (soft) zaznaczonych.");
+    }
+  }
+
+  async function bulkHardDeleteSelected() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`⚠️ TRWALE usunąć zaznaczone ${selectedIds.size} produktów?`)) return;
+    try {
+      await api.admin.deleteProductsBulk([...selectedIds], { hard: true });
+      setSelectedIds(new Set());
+      await load();
+    } catch (err: any) {
+      console.error("[bulkHardDeleteSelected]", err);
+      alert(err?.message || "Nie udało się trwale usunąć zaznaczonych.");
+    }
+  }
+
+  /* ---------------------------------------------------------------------------------------------
+     Pojedynczy hard delete (fallback 404 -> bulk z ids)
+  --------------------------------------------------------------------------------------------- */
   async function hardDeleteOne(id: string) {
     if (!confirm("Na pewno TRWALE usunąć ten produkt?")) return;
     try {
-      await ensureCsrf();
-      const csrf = getCookie("csrf");
-      let res = await fetch(`${API_BASE}/api/admin/products/${encodeURIComponent(id)}?hard=1`, {
-        method: "DELETE",
-        credentials: "include",
-        headers: { "X-CSRF-Token": csrf },
-      });
-      if (res.status === 404) {
-        res = await fetch(`${API_BASE}/api/admin/products`, {
-          method: "DELETE",
-          credentials: "include",
-          headers: { "X-CSRF-Token": csrf, "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: [id], force: true }),
-        });
-      }
-      if (!res.ok) throw new Error(await readError(res));
+      await api.admin.deleteProduct(id, { hard: true });
       await load();
     } catch (e: any) {
-      console.error("[hardDeleteOne]", e);
-      alert(e?.message || "Nie udało się trwale usunąć produktu.");
+      try {
+        await api.admin.deleteProductsBulk([id], { hard: true });
+        await load();
+      } catch (e2: any) {
+        console.error("[hardDeleteOne]", e2);
+        alert(e2?.message || "Nie udało się trwale usunąć produktu.");
+      }
     }
   }
 
@@ -260,8 +396,24 @@ export default function AdminProductsPage() {
     if (!confirm("Uruchomić REIMPORT/UPSERT PopularGifts?")) return;
     setBulkBusy("upsert");
     try {
+      const viaHelper = api?.admin?.seedPopular;
+      const toastFrom = (data: any) => {
+        const added   = Number(data?.added   ?? data?.createdCount ?? (Array.isArray(data?.created) ? data.created.length : 0) ?? 0);
+        const updated = Number(data?.updated ?? data?.updatedCount ?? 0);
+        const restored= Number(data?.restored?? data?.restoredCount?? 0);
+        const skipped = Number(data?.skipped ?? data?.skippedCount ?? 0);
+        return `Zakończono upsert. Dodano: ${added}, zaktualizowano: ${updated}, przywrócono: ${restored}, pominięto: ${skipped}.`;
+      };
+
+      if (typeof viaHelper === "function") {
+        const data: any = await viaHelper("upsert"); // "insert" | "upsert"
+        alert(toastFrom(data));
+        setPage(1);
+        await load();
+        return;
+      }
       await ensureCsrf();
-      const csrf = getCookie("csrf");
+      const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
       const res = await fetch(`${API_BASE}/api/admin/seed/popular`, {
         method: "POST",
         credentials: "include",
@@ -270,7 +422,7 @@ export default function AdminProductsPage() {
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json().catch(() => ({}));
-      alert(`Zakończono upsert. Dodano/Zaktualizowano: ${data?.createdCount ?? "?"}.`);
+      alert(toastFrom(data));
       setPage(1);
       await load();
     } catch (e: any) {
@@ -281,10 +433,11 @@ export default function AdminProductsPage() {
     }
   }
 
-  // ====== POMOCNICZE: domyślny wybór zdjęcia (native picker + fallback)
+  /* ---------------------------------------------------------------------------------------------
+     Upload — wybór zdjęcia (native → fallback)
+  --------------------------------------------------------------------------------------------- */
   async function chooseAndUpload(productId: string) {
     try {
-      // 1) spróbuj natywny picker
       const nativeFile = await pickImageViaNativePicker();
       if (nativeFile) {
         if (!nativeFile.type.startsWith("image/")) return alert("Wybierz obrazek (image/*).");
@@ -298,7 +451,6 @@ export default function AdminProductsPage() {
         }
         return;
       }
-      // 2) fallback – otwórz ukryty input
       setHiddenTargetId(productId);
       hiddenInputRef.current?.click();
     } catch (err: any) {
@@ -307,20 +459,22 @@ export default function AdminProductsPage() {
     }
   }
 
-  // ====== RENDER ======
+  /* ---------------------------------------------------------------------------------------------
+     Render
+  --------------------------------------------------------------------------------------------- */
   return (
-    <div className="p-6 max-w-6xl mx-auto relative">
-      {/* Pasek szybkiej nawigacji po panelu admina */}
+    <div className="admin-skin admin-page p-6 max-w-6xl mx-auto relative">
+      {/* Pasek szybki */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-600 mr-2">Moduły:</span>
-        <Link to="/admin" className="px-2 py-1 border rounded hover:bg-gray-50">Dashboard</Link>
-        <Link to="/admin/products" className="px-2 py-1 border rounded bg-gray-100">Produkty</Link>
-        <Link to="/admin/orders" className="px-2 py-1 border rounded hover:bg-gray-50">Zamówienia</Link>
-        <Link to="/admin/users" className="px-2 py-1 border rounded hover:bg-gray-50">Użytkownicy</Link>
-        <Link to="/admin/logs" className="px-2 py-1 border rounded hover:bg-gray-50">Logi</Link>
+        <span className="text-sm text-[var(--adm-muted)] mr-2">Moduły:</span>
+        <Link to="/admin" className="admin-btn px-2 py-1" title="Dashboard">Dashboard</Link>
+        <Link to="/admin/products" className="admin-btn px-2 py-1 primary" title="Produkty">Produkty</Link>
+        <Link to="/admin/orders" className="admin-btn px-2 py-1" title="Zamówienia">Zamówienia</Link>
+        <Link to="/admin/users" className="admin-btn px-2 py-1" title="Użytkownicy">Użytkownicy</Link>
+        <Link to="/admin/logs" className="admin-btn px-2 py-1" title="Logi">Logi</Link>
       </div>
 
-      {/* Ukryty globalny input (fallback dla wszystkich przycisków Dodaj zdjęcie) */}
+      {/* Ukryty input dla uploadu */}
       <input
         ref={hiddenInputRef}
         type="file"
@@ -351,9 +505,10 @@ export default function AdminProductsPage() {
 
       <h1 className="text-2xl font-bold mb-4">Produkty</h1>
 
+      {/* Filtry i akcje */}
       <div className="flex flex-wrap gap-2 mb-3 items-center">
         <input
-          className="border rounded px-3 py-2"
+          className="admin-input"
           placeholder="Szukaj po nazwie/slug…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -363,19 +518,38 @@ export default function AdminProductsPage() {
               load();
             }
           }}
+          aria-label="Szukaj produktów"
         />
         <button
           type="button"
-          className="px-3 py-2 bg-mainRed text-white rounded"
+          className="admin-btn primary"
           onClick={() => {
             setPage(1);
             load();
           }}
+          title="Wyszukaj"
         >
           Szukaj
         </button>
 
-        <label className="flex items-center gap-2 ml-auto">
+        <input
+          className="admin-input"
+          placeholder="Kategoria (slug) – np. dla-niej"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          aria-label="Filtr: kategoria (slug)"
+        />
+
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={onlyFeatured}
+            onChange={(e) => setOnlyFeatured(e.target.checked)}
+          />
+          Tylko popularne (featured)
+        </label>
+
+        <label className="flex items-center gap-2 ml-auto text-sm">
           <input
             type="checkbox"
             checked={withDeleted}
@@ -388,9 +562,10 @@ export default function AdminProductsPage() {
           {isDev && (
             <button
               type="button"
-              className="px-3 py-2 border rounded"
+              className="admin-btn"
               onClick={() => setImportOpen(true)}
               disabled={!!bulkBusy}
+              title="Importuj popularne produkty (seed)"
             >
               Importuj PopularGifts
             </button>
@@ -398,81 +573,181 @@ export default function AdminProductsPage() {
           {isDev && (
             <button
               type="button"
-              className="px-3 py-2 border rounded"
+              className="admin-btn"
               onClick={importUpsertPopular}
               disabled={!!bulkBusy}
+              title="Reimport/Upsert popularnych produktów"
             >
               Reimport/Upsert PopularGifts
             </button>
           )}
+          {isDev && (
+            <button
+              type="button"
+              className="admin-btn"
+              onClick={runSeed}
+              disabled={!!bulkBusy}
+              title="Seed popularnych (wariant SAFE)"
+            >
+              Seed (SAFE)
+            </button>
+          )}
+
           <button
             type="button"
-            className="px-3 py-2 border rounded text-red-700 disabled:opacity-50"
+            className="admin-btn"
             onClick={bulkSoftDeleteAll}
             disabled={!!bulkBusy}
+            title="Soft-delete wszystkich"
           >
             Usuń WSZYSTKIE (soft)
           </button>
           <button
             type="button"
-            className="px-3 py-2 border rounded text-white bg-red-600 disabled:opacity-50"
+            className="admin-btn danger"
             onClick={bulkHardDeleteAll}
             disabled={!!bulkBusy}
+            title="TRWAŁE usunięcie wszystkich"
           >
             Usuń WSZYSTKIE trwale
           </button>
+
           <button
             type="button"
-            className="px-3 py-2 bg-gold text-mainRed rounded font-bold"
+            className="admin-btn"
+            disabled={selectedIds.size === 0}
+            onClick={bulkSoftDeleteSelected}
+            title="Soft-delete zaznaczonych"
+          >
+            Usuń zaznaczone (soft)
+          </button>
+
+          <button
+            type="button"
+            className="admin-btn danger"
+            disabled={selectedIds.size === 0}
+            onClick={bulkHardDeleteSelected}
+            title="TRWAŁE usunięcie zaznaczonych"
+          >
+            Usuń zaznaczone trwale
+          </button>
+
+          <button
+            type="button"
+            className="admin-btn px-3 py-2"
+            style={{ background: "var(--adm-head)", borderColor: "#FFD70033", fontWeight: 700 }}
             onClick={() => setCreateOpen(true)}
             disabled={!!bulkBusy}
+            title="Utwórz nowy produkt"
           >
             + Nowy produkt
           </button>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm border">
-          <thead className="bg-gray-50">
+      {/* Tabela */}
+      <div className="admin-table-wrap">
+        <table className="admin-table text-sm">
+          <thead>
             <tr>
-              <th className="p-2 border">Nazwa</th>
-              <th className="p-2 border">Slug</th>
-              <th className="p-2 border">Cena min</th>
-              <th className="p-2 border">Popularny</th>
-              <th className="p-2 border">Status</th>
-              <th className="p-2 border">Akcje</th>
+              <th className="text-left">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedIds(new Set(items.map(i => i.id)));
+                    } else {
+                      setSelectedIds(new Set());
+                    }
+                  }}
+                  aria-label="Zaznacz wszystkie"
+                />
+              </th>
+              <th className="text-left">Obrazek</th>
+              <th className="text-left">Nazwa</th>
+              <th className="text-left">Slug</th>
+              <th className="text-left">Cena min</th>
+              <th className="text-left">Popularny</th>
+              <th className="text-left">Status</th>
+              <th className="text-left">Akcje</th>
             </tr>
           </thead>
           <tbody>
             {items.map((p) => {
               const minPrice = computeMinPrice(p.variants);
+              const checked = selectedIds.has(p.id);
+              const thumb =
+                p.media?.[0]?.url
+                  ? buildImageUrl(p.media[0].url)
+                  : (p.imageUrl || p.image || "");
 
               return (
                 <tr key={p.id}>
-                  <td className="p-2 border font-semibold">{p.name}</td>
-                  <td className="p-2 border">{p.slug}</td>
-                  <td className="p-2 border">
-                    {minPrice !== null ? (minPrice / 100).toFixed(2) + " zł" : "-"}
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setSelectedIds(prev => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(p.id);
+                          else next.delete(p.id);
+                          return next;
+                        });
+                      }}
+                      aria-label={`Zaznacz ${p.name}`}
+                    />
                   </td>
-                  <td className="p-2 border text-center">{p.featured ? "★" : "–"}</td>
-                  <td className="p-2 border">
-                    {p.deletedAt ? <span className="text-red-600 font-bold">USUNIĘTY</span> : "Aktywny"}
+
+                  <td>
+                    {thumb ? (
+                      <img
+                        src={thumb}
+                        alt=""
+                        className="w-12 h-12 object-cover rounded"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded bg-[rgba(255,255,255,0.06)] grid place-items-center text-[var(--adm-muted)]">
+                        —
+                      </div>
+                    )}
                   </td>
-                  <td className="p-2 border">
+
+                  <td className="font-semibold">{p.name}</td>
+                  <td>{p.slug}</td>
+                  <td>{minPrice !== null ? (minPrice / 100).toFixed(2) + " zł" : "-"}</td>
+                  <td className="text-center" title={p.featured ? "Produkt wyróżniony" : "Zwykły"}>
+                    {p.featured ? "★" : "–"}
+                  </td>
+                  <td>
+                    {p.deletedAt ? (
+                      <span
+                        className="admin-badge"
+                        style={{ background: "#3a1f24", color: "#ffdfe1" }}
+                        title="Produkt jest soft-deleted"
+                      >
+                        USUNIĘTY
+                      </span>
+                    ) : (
+                      "Aktywny"
+                    )}
+                  </td>
+                  <td>
                     <div className="flex flex-wrap gap-2 items-center">
                       <button
                         type="button"
-                        className="px-2 py-1 border rounded"
+                        className="admin-btn px-2 py-1"
                         onClick={() => setEditId(p.id)}
+                        title="Edytuj produkt"
                       >
                         Edytuj
                       </button>
 
-                      {/* DOMYŚLNIE: natywny picker + fallback */}
                       <button
                         type="button"
-                        className="px-2 py-1 border rounded"
+                        className="admin-btn px-2 py-1"
                         onClick={() => chooseAndUpload(p.id)}
                         disabled={uploadBusyProductId === p.id}
                         title="Dodaj zdjęcie (natywny picker lub z dysku)"
@@ -484,22 +759,24 @@ export default function AdminProductsPage() {
                         <>
                           <button
                             type="button"
-                            className="px-2 py-1 border rounded text-red-700"
+                            className="admin-btn px-2 py-1"
                             onClick={async () => {
                               try {
-                                await api.admin.deleteProduct(p.id);
+                                await api.admin.deleteProduct(p.id); // SOFT
                                 load();
                               } catch (err: any) {
                                 alert(err?.message || "Nie udało się usunąć produktu.");
                               }
                             }}
+                            title="Soft-delete produktu"
                           >
                             Usuń
                           </button>
                           <button
                             type="button"
-                            className="px-2 py-1 border rounded text-white bg-red-600"
-                            onClick={() => hardDeleteOne(p.id)}
+                            className="admin-btn danger px-2 py-1"
+                            onClick={() => hardDeleteOne(p.id)} // HARD
+                            title="TRWAŁE usunięcie"
                           >
                             Usuń trwale
                           </button>
@@ -508,7 +785,7 @@ export default function AdminProductsPage() {
                         <>
                           <button
                             type="button"
-                            className="px-2 py-1 border rounded"
+                            className="admin-btn px-2 py-1"
                             onClick={async () => {
                               try {
                                 await api.admin.updateProduct(p.id, { undelete: true });
@@ -517,13 +794,15 @@ export default function AdminProductsPage() {
                                 alert(err?.message || "Nie udało się przywrócić produktu.");
                               }
                             }}
+                            title="Przywróć produkt"
                           >
                             Przywróć
                           </button>
                           <button
                             type="button"
-                            className="px-2 py-1 border rounded text-white bg-red-600"
-                            onClick={() => hardDeleteOne(p.id)}
+                            className="admin-btn danger px-2 py-1"
+                            onClick={() => hardDeleteOne(p.id)} // HARD
+                            title="TRWAŁE usunięcie"
                           >
                             Usuń trwale
                           </button>
@@ -534,32 +813,43 @@ export default function AdminProductsPage() {
                 </tr>
               );
             })}
+            {items.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-3 py-4 text-center text-[var(--adm-muted)]">
+                  Brak wyników.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      <div className="mt-3 flex gap-2">
+      {/* Paginacja */}
+      <div className="flex gap-2 items-center mt-3">
         <button
           type="button"
           disabled={page <= 1}
-          className="px-3 py-1 border rounded"
+          className={`admin-btn ${page <= 1 ? "opacity-50 cursor-not-allowed" : ""}`}
           onClick={() => setPage((p) => p - 1)}
+          title="Poprzednia strona"
         >
-          ←
+          ← Poprzednia
         </button>
-        <span>
+        <span className="text-sm text-[var(--adm-muted)]">
           Strona {page}/{pages}
         </span>
         <button
           type="button"
           disabled={page >= pages}
-          className="px-3 py-1 border rounded"
+          className={`admin-btn ${page >= pages ? "opacity-50 cursor-not-allowed" : ""}`}
           onClick={() => setPage((p) => p + 1)}
+          title="Następna strona"
         >
-          →
+          Następna →
         </button>
       </div>
 
+      {/* Modale */}
       {createOpen && (
         <CreateProductModal
           onClose={() => setCreateOpen(false)}
@@ -569,9 +859,11 @@ export default function AdminProductsPage() {
           }}
         />
       )}
+
       {editId && (
         <EditProductModal
           id={editId}
+          initialProduct={items.find((x) => x.id === editId) || null}
           onClose={() => setEditId(null)}
           onDone={() => {
             setEditId(null);
@@ -579,6 +871,7 @@ export default function AdminProductsPage() {
           }}
         />
       )}
+
       {importOpen && isDev && (
         <ImportPopularGiftsModal
           onClose={() => setImportOpen(false)}
@@ -588,14 +881,25 @@ export default function AdminProductsPage() {
           }}
         />
       )}
+
+      {/* TOAST */}
+      {toast && (
+        <div
+          className="fixed bottom-4 right-4 z-[99999] px-3 py-2 rounded-lg shadow-lg"
+          style={{ background: "rgba(15,21,34,0.95)", color: "#e9eef7", border: "1px solid rgba(255,255,255,0.12)" }}
+          role="status"
+          aria-live="polite"
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
 
-/* ===========================
+/* ================================================================================================
    CreateProductModal
-=========================== */
-
+================================================================================================ */
 function CreateProductModal({
   onClose,
   onDone,
@@ -603,7 +907,6 @@ function CreateProductModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  // przechowujemy cenę w polu tekstowym w zł, a zapisujemy jako cents
   const [form, setForm] = useState({
     name: "",
     slug: "",
@@ -611,7 +914,7 @@ function CreateProductModal({
     brand: "",
     category: "",
     sku: "",
-    priceZl: "", // zł jako string (np. "99.99")
+    priceZl: "",
     stock: 0,
     color: "",
     size: "",
@@ -621,8 +924,19 @@ function CreateProductModal({
   const [file, setFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
 
-  // lokalny fallback input
   const hiddenCreateRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        void handleSave();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, file, creating]);
 
   async function pickForCreate() {
     const f = await pickImageViaNativePicker();
@@ -630,37 +944,111 @@ function CreateProductModal({
     hiddenCreateRef.current?.click();
   }
 
-  // helper: parse zł->cents
   const parseZlToCents = (s: string): number => {
     const n = Number(String(s).replace(",", ".").trim());
     return Number.isFinite(n) ? Math.round(n * 100) : 0;
   };
 
+  const handleSave = async () => {
+    try {
+      if (!form.name || !form.slug || !form.category) {
+        alert("Wypełnij minimum: Nazwa, Slug, Kategoria.");
+        return;
+      }
+      const priceCents = parseZlToCents(form.priceZl);
+      if (priceCents <= 0) {
+        alert("Podaj poprawną cenę (zł).");
+        return;
+      }
+      setCreating(true);
+
+      const created = await api.admin.createProduct({
+        name: form.name,
+        slug: form.slug,
+        description: form.description,
+        brand: form.brand,
+        category: coerceCategorySlug(form.category),
+        variant: {
+          sku: form.sku || form.slug.toUpperCase(),
+          priceCents,
+          stock: form.stock,
+          color: form.color || undefined,
+          size: form.size || undefined,
+          personalize: !!form.personalize,
+        },
+      });
+
+      const productId = (created as any)?.product?.id;
+      if (!productId) {
+        alert("Produkt się utworzył, ale nie dostałem ID. Sprawdź backend logi.");
+        return onDone();
+      }
+
+      if (form.featured) {
+        await api.admin.updateProduct(productId, { featured: true });
+      }
+
+      if (file) {
+        try {
+          await uploadProductImageDirect(productId, file);
+        } catch (err: any) {
+          console.error("[Upload podczas tworzenia] error", err);
+          alert("Produkt zapisany, ale obrazek nie został dodany: " + (err?.message || ""));
+        }
+      }
+
+      onDone();
+    } catch (err: any) {
+      console.error("[CreateProduct] failed]", err);
+      alert(err?.message || "Nie udało się utworzyć produktu.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-5 w-full max-w-xl">
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.7)" }}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="rounded-xl p-5 w-full max-w-xl max-h-[85vh] overflow-y-auto shadow-2xl"
+        style={{
+          background: "var(--adm-surface-solid, #0f1522)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          color: "var(--adm-fore,#e9eef7)",
+        }}
+      >
         <h2 className="text-lg font-bold mb-3">Nowy produkt</h2>
 
         <div className="grid grid-cols-2 gap-3">
-          <label className="col-span-2 text-sm text-gray-600">Nazwa</label>
+          <label className="col-span-2 text-sm text-[var(--adm-muted)]">Nazwa</label>
           <input
-            className="border px-3 py-2 col-span-2"
+            className="admin-input col-span-2"
             placeholder="Np. Kubek z nadrukiem"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
 
-          <label className="col-span-2 text-sm text-gray-600">Slug</label>
+          <label className="col-span-2 text-sm text-[var(--adm-muted)]">Slug</label>
           <input
-            className="border px-3 py-2 col-span-2"
+            className="admin-input col-span-2"
             placeholder="np. kubek-z-nadrukiem"
             value={form.slug}
             onChange={(e) => setForm({ ...form, slug: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                void handleSave();
+              }
+            }}
           />
 
-          <label className="col-span-2 text-sm text-gray-600">Opis</label>
+          <label className="col-span-2 text-sm text-[var(--adm-muted)]">Opis</label>
           <textarea
-            className="border px-3 py-2 col-span-2"
+            className="admin-input col-span-2"
             placeholder="Krótki opis produktu…"
             rows={3}
             value={form.description}
@@ -669,9 +1057,9 @@ function CreateProductModal({
 
           <div className="grid grid-cols-2 gap-3 col-span-2">
             <div>
-              <label className="text-sm text-gray-600">Marka</label>
+              <label className="text-sm text-[var(--adm-muted)]">Marka</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. GiftStore"
                 value={form.brand}
                 onChange={(e) => setForm({ ...form, brand: e.target.value })}
@@ -679,9 +1067,9 @@ function CreateProductModal({
             </div>
 
             <div>
-              <label className="text-sm text-gray-600">Kategoria</label>
+              <label className="text-sm text-[var(--adm-muted)]">Kategoria</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. dla-niej / na-urodziny"
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -691,9 +1079,9 @@ function CreateProductModal({
 
           <div className="grid grid-cols-2 gap-3 col-span-2">
             <div>
-              <label className="text-sm text-gray-600">SKU</label>
+              <label className="text-sm text-[var(--adm-muted)]">SKU</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. KUBEK-RED-M"
                 value={form.sku}
                 onChange={(e) => setForm({ ...form, sku: e.target.value })}
@@ -701,9 +1089,9 @@ function CreateProductModal({
             </div>
 
             <div>
-              <label className="text-sm text-gray-600">Cena (zł)</label>
+              <label className="text-sm text-[var(--adm-muted)]">Cena (zł)</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 inputMode="decimal"
                 placeholder="np. 49.99"
                 value={form.priceZl}
@@ -714,28 +1102,28 @@ function CreateProductModal({
 
           <div className="grid grid-cols-3 gap-3 col-span-2">
             <div>
-              <label className="text-sm text-gray-600">Stan (szt.)</label>
+              <label className="text-sm text-[var(--adm-muted)]">Stan (szt.)</label>
               <input
                 type="number"
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. 25"
                 value={form.stock}
                 onChange={(e) => setForm({ ...form, stock: Number(e.target.value) || 0 })}
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Kolor</label>
+              <label className="text-sm text-[var(--adm-muted)]">Kolor</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. czerwony"
                 value={form.color}
                 onChange={(e) => setForm({ ...form, color: e.target.value })}
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Rozmiar</label>
+              <label className="text-sm text-[var(--adm-muted)]">Rozmiar</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. M"
                 value={form.size}
                 onChange={(e) => setForm({ ...form, size: e.target.value })}
@@ -761,18 +1149,17 @@ function CreateProductModal({
             Popularny (featured)
           </label>
 
-          {/* Zdjęcie (opcjonalnie) */}
           <div className="col-span-2">
-            <label className="block text-sm text-gray-600 mb-1">Zdjęcie (opcjonalnie)</label>
+            <label className="block text-sm text-[var(--adm-muted)] mb-1">Zdjęcie (opcjonalnie)</label>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="px-2 py-1 border rounded"
-                onClick={pickForCreate}
-              >
+              <button type="button" className="admin-btn px-2 py-1" onClick={pickForCreate}>
                 Wybierz zdjęcie
               </button>
-              {file && <span className="text-xs text-gray-600 truncate max-w-[220px]">{file.name}</span>}
+              {file && (
+                <span className="text-xs text-[var(--adm-muted)] truncate max-w-[220px]">
+                  {file.name}
+                </span>
+              )}
             </div>
             <input
               ref={hiddenCreateRef}
@@ -789,70 +1176,15 @@ function CreateProductModal({
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className="px-3 py-1 border rounded" onClick={onClose} disabled={creating}>
+          <button type="button" className="admin-btn" onClick={onClose} disabled={creating}>
             Anuluj
           </button>
           <button
             type="button"
-            className="px-3 py-1 bg-gold text-mainRed rounded font-bold"
+            className="admin-btn primary"
             disabled={creating}
-            onClick={async () => {
-              try {
-                if (!form.name || !form.slug || !form.category) {
-                  alert("Wypełnij minimum: Nazwa, Slug, Kategoria.");
-                  return;
-                }
-                const priceCents = parseZlToCents(form.priceZl);
-                if (priceCents <= 0) {
-                  alert("Podaj poprawną cenę (zł).");
-                  return;
-                }
-                setCreating(true);
-
-                const created = await api.admin.createProduct({
-                  name: form.name,
-                  slug: form.slug,
-                  description: form.description,
-                  brand: form.brand,
-                  category: form.category,
-                  variant: {
-                    sku: form.sku || form.slug.toUpperCase(),
-                    priceCents,
-                    stock: form.stock,
-                    // ⬇ ważne: undefined zamiast null (żeby zgadzało się z typami api.ts)
-                    color: form.color || undefined,
-                    size: form.size || undefined,
-                    personalize: !!form.personalize,
-                  },
-                });
-
-                const productId = created?.product?.id;
-                if (!productId) {
-                  alert("Produkt się utworzył, ale nie dostałem ID. Sprawdź backend logi.");
-                  return onDone();
-                }
-
-                if (form.featured) {
-                  await api.admin.updateProduct(productId, { featured: true });
-                }
-
-                if (file) {
-                  try {
-                    await uploadProductImageDirect(productId, file);
-                  } catch (err: any) {
-                    console.error("[Upload podczas tworzenia] error", err);
-                    alert("Produkt zapisany, ale obrazek nie został dodany: " + (err?.message || ""));
-                  }
-                }
-
-                onDone();
-              } catch (err: any) {
-                console.error("[CreateProduct] failed]", err);
-                alert(err?.message || "Nie udało się utworzyć produktu.");
-              } finally {
-                setCreating(false);
-              }
-            }}
+            onClick={handleSave}
+            title="Zapisz (Ctrl/Cmd+Enter)"
           >
             Zapisz
           </button>
@@ -862,23 +1194,23 @@ function CreateProductModal({
   );
 }
 
-/* ===========================
+/* ================================================================================================
    EditProductModal
-=========================== */
-
+================================================================================================ */
 function EditProductModal({
   id,
+  initialProduct,
   onClose,
   onDone,
 }: {
   id: string;
+  initialProduct?: ProductRow | null;
   onClose: () => void;
   onDone: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [product, setProduct] = useState<ProductRow | null>(null);
 
-  // product fields
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
@@ -886,10 +1218,9 @@ function EditProductModal({
   const [category, setCategory] = useState<string>("");
   const [featured, setFeatured] = useState(false);
 
-  // first variant fields
   const [variantId, setVariantId] = useState<string | undefined>(undefined);
   const [variantSku, setVariantSku] = useState<string>("");
-  const [variantZl, setVariantZl] = useState<string>(""); // zł string
+  const [variantZl, setVariantZl] = useState<string>("");
   const [variantStock, setVariantStock] = useState<number>(0);
   const [variantColor, setVariantColor] = useState<string>("");
   const [variantSize, setVariantSize] = useState<string>("");
@@ -898,10 +1229,44 @@ function EditProductModal({
   const [uploading, setUploading] = useState(false);
   const hiddenEditRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        void handleSave();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, slug, description, brand, category, featured, variantId, variantSku, variantZl, variantStock, variantColor, variantSize, variantPersonalize]);
+
   const parseZlToCents = (s: string): number => {
     const n = Number(String(s).replace(",", ".").trim());
     return Number.isFinite(n) ? Math.round(n * 100) : 0;
   };
+
+  function primeFromProduct(p: ProductRow) {
+    setProduct(p);
+    setName(p?.name ?? "");
+    setSlug(p?.slug ?? "");
+    setDescription(String(p?.description ?? ""));
+    setBrand(String(p?.brand ?? ""));
+
+    const catSlug = coerceCategorySlug(p?.category);
+    setCategory(catSlug);
+
+    setFeatured(!!p?.featured);
+
+    const v = p?.variants?.[0];
+    setVariantId(v?.id);
+    setVariantSku(String(v?.sku ?? ""));
+    setVariantZl(typeof v?.priceCents === "number" ? (v.priceCents / 100).toFixed(2) : "");
+    setVariantStock(typeof v?.stock === "number" ? v.stock : 0);
+    setVariantColor(String(v?.color ?? ""));
+    setVariantSize(String(v?.size ?? ""));
+    setVariantPersonalize(!!v?.personalize);
+  }
 
   async function pickForEdit(productId: string) {
     try {
@@ -924,14 +1289,17 @@ function EditProductModal({
     }
   }
 
-  async function saveVariant(variantId: string, payload: {
-    sku?: string | null;
-    priceCents?: number;
-    stock?: number;
-    color?: string | undefined;
-    size?: string | undefined;
-    personalize?: boolean;
-  }) {
+  async function saveVariant(
+    variantId: string,
+    payload: {
+      sku?: string | null;
+      priceCents?: number;
+      stock?: number;
+      color?: string | undefined;
+      size?: string | undefined;
+      personalize?: boolean;
+    }
+  ) {
     await ensureCsrf();
     const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
     const res = await fetch(`${API_BASE}/api/admin/variants/${encodeURIComponent(variantId)}`, {
@@ -951,23 +1319,9 @@ function EditProductModal({
     setLoading(true);
     try {
       const res = await api.admin.productById(id);
-      const p = res.product as ProductRow;
-      setProduct(p);
-      setName(p.name || "");
-      setSlug(p.slug || "");
-      setDescription((p?.description as string) || "");
-      setBrand((p?.brand as string) || "");
-      setCategory((p?.category as string) || "");
-      setFeatured(!!p?.featured);
-
-      const v = p.variants?.[0];
-      setVariantId(v?.id);
-      setVariantSku((v?.sku as string) || "");
-      setVariantZl(typeof v?.priceCents === "number" ? (v.priceCents / 100).toFixed(2) : "");
-      setVariantStock(typeof v?.stock === "number" ? v.stock : 0);
-      setVariantColor((v?.color as string) || "");
-      setVariantSize((v?.size as string) || "");
-      setVariantPersonalize(!!v?.personalize);
+      const p = pickProductShape(res, id);
+      if (!p) throw new Error("Produkt nie znaleziony lub nieprawidłowy format odpowiedzi API.");
+      primeFromProduct(p);
     } catch (err: any) {
       console.error("[EditProduct] load() failed:", err);
       alert(err?.message || "Nie udało się pobrać produktu.");
@@ -977,54 +1331,135 @@ function EditProductModal({
   }
 
   useEffect(() => {
+    if (initialProduct) {
+      try {
+        primeFromProduct(initialProduct);
+        setLoading(false);
+      } catch {
+        /* ignore */
+      }
+    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-        <div className="bg-white rounded-xl p-4 w-full max-w-lg">Ładowanie…</div>
+      <div
+        className="fixed inset-0 z-[9999] flex items-center justify-center"
+        style={{ background: "rgba(0,0,0,0.7)" }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Ładowanie produktu"
+      >
+        <div
+          className="p-4 w-full max-w-lg rounded-xl"
+          style={{
+            background: "var(--adm-surface-solid, #0f1522)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            color: "var(--adm-fore,#e9eef7)",
+          }}
+        >
+          Ładowanie…
+        </div>
       </div>
     );
   }
   if (!product) return null;
 
-  const imgSrc = (url: string) => {
-    if (!url) return "";
-    if (/^https?:\/\//i.test(url)) return url;
-    return `${API_BASE}${url.startsWith("/") ? url : `/${url}`}`;
+  const imgSrc = (url: string) => buildImageUrl(url);
+
+  const handleSave = async () => {
+    try {
+      await api.admin.updateProduct(product.id, {
+        name,
+        slug,
+        description,
+        brand,
+        category: coerceCategorySlug(category),
+        featured,
+      });
+
+      if (variantId) {
+        const payload = {
+          sku: variantSku || null,
+          priceCents: parseZlToCents(variantZl),
+          stock: variantStock,
+          color: variantColor ? variantColor : undefined,
+          size: variantSize ? variantSize : undefined,
+          personalize: !!variantPersonalize,
+        };
+        await saveVariant(variantId, payload);
+      }
+
+      onDone();
+    } catch (err: any) {
+      console.error("[EditProduct] save failed:", err);
+      alert(err?.message || "Nie udało się zapisać zmian.");
+    }
   };
 
+  // Obraz główny podgląd: pierwszy z media albo fallback imageUrl/image
+  const cover =
+    product.media?.[0]?.url
+      ? imgSrc(product.media[0].url)
+      : (product.imageUrl || product.image || "");
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-5 w-full max-w-3xl">
-        <h2 className="text-lg font-bold mb-3">Edytuj: {product.name}</h2>
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.7)" }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Edytuj produkt ${product?.name || ""}`}
+    >
+      <div
+        className="rounded-xl p-5 w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl"
+        style={{
+          background: "var(--adm-surface-solid, #0f1522)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          color: "var(--adm-fore,#e9eef7)",
+        }}
+      >
+        <h2 className="text-lg font-bold mb-2">Edytuj: {product?.name || "—"}</h2>
+
+        {cover ? (
+          <div className="mb-3">
+            {/* cover jest już pełnym URL-em – NIE wywołujemy ponownie buildImageUrl */}
+            <img src={cover} alt="" className="w-full max-h-60 object-cover rounded" />
+          </div>
+        ) : null}
 
         {/* Podstawowe dane */}
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div>
-            <label className="text-sm text-gray-600">Nazwa</label>
+            <label className="text-sm text-[var(--adm-muted)]">Nazwa</label>
             <input
-              className="border px-3 py-2 w-full"
+              className="admin-input w-full"
               placeholder="Np. Kubek z nadrukiem"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-sm text-gray-600">Slug</label>
+            <label className="text-sm text-[var(--adm-muted)]">Slug</label>
             <input
-              className="border px-3 py-2 w-full"
+              className="admin-input w-full"
               placeholder="np. kubek-z-nadrukiem"
               value={slug}
               onChange={(e) => setSlug(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  void handleSave();
+                }
+              }}
             />
           </div>
           <div className="col-span-2">
-            <label className="text-sm text-gray-600">Opis</label>
+            <label className="text-sm text-[var(--adm-muted)]">Opis</label>
             <textarea
-              className="border px-3 py-2 w-full"
+              className="admin-input w-full"
               rows={3}
               placeholder="Krótki opis produktu…"
               value={description}
@@ -1032,18 +1467,18 @@ function EditProductModal({
             />
           </div>
           <div>
-            <label className="text-sm text-gray-600">Marka</label>
+            <label className="text-sm text-[var(--adm-muted)]">Marka</label>
             <input
-              className="border px-3 py-2 w-full"
+              className="admin-input w-full"
               placeholder="np. GiftStore"
               value={brand}
               onChange={(e) => setBrand(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-sm text-gray-600">Kategoria</label>
+            <label className="text-sm text-[var(--adm-muted)]">Kategoria (slug)</label>
             <input
-              className="border px-3 py-2 w-full"
+              className="admin-input w-full"
               placeholder="np. dla-niej / na-urodziny"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
@@ -1065,18 +1500,18 @@ function EditProductModal({
           <h3 className="font-bold mb-2">Wariant (1)</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <div>
-              <label className="text-sm text-gray-600">SKU</label>
+              <label className="text-sm text-[var(--adm-muted)]">SKU</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. KUBEK-RED-M"
                 value={variantSku}
                 onChange={(e) => setVariantSku(e.target.value)}
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Cena (zł)</label>
+              <label className="text-sm text-[var(--adm-muted)]">Cena (zł)</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 inputMode="decimal"
                 placeholder="np. 49.99"
                 value={variantZl}
@@ -1084,28 +1519,28 @@ function EditProductModal({
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Stan (szt.)</label>
+              <label className="text-sm text-[var(--adm-muted)]">Stan (szt.)</label>
               <input
                 type="number"
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. 25"
                 value={variantStock}
                 onChange={(e) => setVariantStock(Number(e.target.value) || 0)}
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Kolor</label>
+              <label className="text-sm text-[var(--adm-muted)]">Kolor</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. czerwony"
                 value={variantColor}
                 onChange={(e) => setVariantColor(e.target.value)}
               />
             </div>
             <div>
-              <label className="text-sm text-gray-600">Rozmiar</label>
+              <label className="text-sm text-[var(--adm-muted)]">Rozmiar</label>
               <input
-                className="border px-3 py-2 w-full"
+                className="admin-input w-full"
                 placeholder="np. M"
                 value={variantSize}
                 onChange={(e) => setVariantSize(e.target.value)}
@@ -1130,7 +1565,7 @@ function EditProductModal({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="px-2 py-1 border rounded"
+                className="admin-btn px-2 py-1"
                 onClick={() => pickForEdit(product.id)}
                 disabled={uploading}
                 title="Dodaj zdjęcie (natywny picker lub z dysku)"
@@ -1160,15 +1595,14 @@ function EditProductModal({
             </div>
           </div>
 
-          {product.media?.length ? (
+          {product?.media?.length ? (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {product.media.map((m) => (
-                <div key={m.id} className="border rounded-lg p-2 flex flex-col items-center">
-                  {/* eslint-disable-next-line jsx-a11y/alt-text */}
-                  <img src={imgSrc(m.url)} className="w-full aspect-square object-cover rounded" />
+                <div key={m.id} className="admin-card p-2 rounded-lg flex flex-col items-center">
+                  <img src={imgSrc(m.url)} className="w-full aspect-square object-cover rounded" alt="" />
                   <button
                     type="button"
-                    className="mt-2 text-sm px-2 py-1 border rounded hover:bg-gray-50"
+                    className="admin-btn px-2 py-1 mt-2"
                     onClick={async () => {
                       try {
                         await api.admin.deleteProductImage(m.id);
@@ -1185,50 +1619,19 @@ function EditProductModal({
               ))}
             </div>
           ) : (
-            <div className="text-sm text-gray-500">Brak obrazków.</div>
+            <div className="text-sm text-[var(--adm-muted)]">Brak obrazków.</div>
           )}
         </div>
 
-        {/* Akcje */}
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className="px-3 py-1 border rounded" onClick={onClose}>
+          <button type="button" className="admin-btn" onClick={onClose}>
             Zamknij
           </button>
           <button
             type="button"
-            className="px-3 py-1 bg-mainRed text-white rounded"
-            onClick={async () => {
-              try {
-                // 1) zapis produktu
-                await api.admin.updateProduct(product.id, {
-                  name,
-                  slug,
-                  description,
-                  brand,
-                  category,
-                  featured,
-                });
-
-                // 2) zapis pierwszego wariantu (wszystkie pola na raz) przez PATCH /variants/:id
-                if (variantId) {
-                  const payload = {
-                    sku: variantSku || null,
-                    priceCents: parseZlToCents(variantZl),
-                    stock: variantStock,
-                    // ⬇ zgodne z typami: undefined gdy pole puste
-                    color: variantColor ? variantColor : undefined,
-                    size: variantSize ? variantSize : undefined,
-                    personalize: !!variantPersonalize,
-                  };
-                  await saveVariant(variantId, payload);
-                }
-
-                onDone();
-              } catch (err: any) {
-                console.error("[EditProduct] save failed:", err);
-                alert(err?.message || "Nie udało się zapisać zmian.");
-              }
-            }}
+            className="admin-btn primary"
+            onClick={handleSave}
+            title="Zapisz (Ctrl/Cmd+Enter)"
           >
             Zapisz
           </button>
@@ -1238,10 +1641,9 @@ function EditProductModal({
   );
 }
 
-/* ===========================
-   ImportPopularGiftsModal
-=========================== */
-
+/* ================================================================================================
+   ImportPopularGiftsModal (DEV only; portal)
+================================================================================================ */
 function ImportPopularGiftsModal({
   onClose,
   onDone,
@@ -1257,13 +1659,100 @@ function ImportPopularGiftsModal({
     setLog((l) => [...l, msg]);
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-4 w-full max-w-2xl">
+  function safeLogCreated(created: unknown) {
+    const list = Array.isArray(created) ? created : [];
+    for (const row of list) {
+      if (typeof row === "string") {
+        push(`  • ${row}`);
+      } else if (row && typeof row === "object") {
+        const id = (row as any)?.id ?? "";
+        const slug = (row as any)?.slug ?? "";
+        push(`  • ${slug || "(brak-slug)"}${id ? ` (${id})` : ""}`);
+      }
+    }
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !running) {
+        void startImport();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [upsert, running]);
+
+  const startImport = async () => {
+    setRunning(true);
+    setLog([]);
+    try {
+      push("Start importu…");
+      const mode: "insert" | "upsert" = upsert ? "upsert" : "insert";
+
+      const viaHelper = api?.admin?.seedPopular;
+      const msgFrom = (data: any) => {
+        const added   = Number(data?.added   ?? data?.createdCount ?? (Array.isArray(data?.created) ? data.created.length : 0) ?? 0);
+        const updated = Number(data?.updated ?? data?.updatedCount ?? 0);
+        const restored= Number(data?.restored?? data?.restoredCount?? 0);
+        const skipped = Number(data?.skipped ?? data?.skippedCount ?? 0);
+        return `Utworzono: ${added}, zaktualizowano: ${updated}, przywrócono: ${restored}, pominięto: ${skipped}.`;
+      };
+
+      if (typeof viaHelper === "function") {
+        const data: any = await viaHelper(mode);
+        push(msgFrom(data));
+        safeLogCreated(data?.created);
+        alert(`Import zakończony. ${msgFrom(data)}`);
+        onDone();
+        return;
+      }
+
+      await ensureCsrf();
+      const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
+      const res = await fetch(`${API_BASE}/api/admin/seed/popular`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+        body: JSON.stringify({ mode }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json();
+
+      push(msgFrom(data));
+      safeLogCreated(data?.created);
+      alert(`Import zakończony. ${msgFrom(data)}`);
+      onDone();
+    } catch (err: any) {
+      console.error("[ImportPopularGifts] error", err);
+      push(`❌ Błąd: ${err?.message || String(err)}`);
+      alert(err?.message || "Import nie powiódł się.");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.72)" }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Import popularnych produktów"
+    >
+      <div
+        className="rounded-xl p-4 w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-2xl"
+        style={{
+          background: "var(--adm-surface-solid, #0f1522)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          color: "var(--adm-fore,#e9eef7)",
+        }}
+      >
         <h2 className="text-lg font-bold mb-3">Import PopularGifts (seed z backendu)</h2>
-        <p className="text-sm text-gray-700 mb-2">
-          Ten import wywołuje endpoint <code>/api/admin/seed/popular</code> po stronie backendu. Zaznacz „upsert”, aby
-          aktualizować już istniejące pozycje.
+        <p className="text-sm text-[var(--adm-muted)] mb-2">
+          Ten import wywołuje nowszy endpoint przez <code>api.admin.seedPopular</code> lub — jeśli
+          helpera brak — klasyczny <code>/api/admin/seed/popular</code>.
         </p>
 
         <label className="flex items-center gap-2 mb-3">
@@ -1271,7 +1760,7 @@ function ImportPopularGiftsModal({
           Tryb upsert (aktualizuj jeśli istnieje)
         </label>
 
-        <div className="border rounded p-2 h-48 overflow-auto text-xs bg-gray-50 mb-3">
+        <div className="admin-card p-2 h-48 overflow-auto text-xs mb-3">
           {log.length ? (
             log.map((l, i) => (
               <div key={i} className="whitespace-pre-wrap">
@@ -1279,54 +1768,26 @@ function ImportPopularGiftsModal({
               </div>
             ))
           ) : (
-            <div className="text-gray-500">Log…</div>
+            <div className="text-[var(--adm-muted)]">Log…</div>
           )}
         </div>
 
         <div className="flex justify-end gap-2">
-          <button type="button" className="px-3 py-1 border rounded" onClick={onClose} disabled={running}>
+          <button type="button" className="admin-btn" onClick={onClose} disabled={running}>
             Zamknij
           </button>
           <button
             type="button"
-            className="px-3 py-1 bg-mainRed text-white rounded disabled:opacity-60"
+            className="admin-btn primary disabled:opacity-60"
             disabled={running}
-            onClick={async () => {
-              setRunning(true);
-              setLog([]);
-              try {
-                push("Start importu…");
-                await ensureCsrf();
-
-                const csrf = getCookie("csrf");
-                const res = await fetch(`${API_BASE}/api/admin/seed/popular`, {
-                  method: "POST",
-                  credentials: "include",
-                  headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-                  body: JSON.stringify({ mode: upsert ? "upsert" : "insert" }),
-                });
-                if (!res.ok) throw new Error(await readError(res));
-                const data = await res.json();
-
-                push(`Utworzono/zaktualizowano: ${data.createdCount ?? 0} produktów.`);
-                if (Array.isArray(data.created) && data.created.length) {
-                  for (const row of data.created) push(`  • ${row.slug} (${row.id})`);
-                }
-                alert(`Import zakończony. Utworzono/zaktualizowano: ${data.createdCount ?? 0}`);
-                onDone();
-              } catch (err: any) {
-                console.error("[ImportPopularGifts] error", err);
-                push(`❌ Błąd: ${err?.message || String(err)}`);
-                alert(err?.message || "Import nie powiódł się.");
-              } finally {
-                setRunning(false);
-              }
-            }}
+            onClick={startImport}
+            title="Start importu (Ctrl/Cmd+Enter)"
           >
             Start importu
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

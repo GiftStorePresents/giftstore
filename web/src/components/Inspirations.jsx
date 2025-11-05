@@ -4,25 +4,25 @@ import { FaHeart, FaBirthdayCake, FaChild, FaCoffee } from "react-icons/fa";
 const inspirations = [
   {
     title: "Prezent dla Mamy",
-    icon: <FaHeart className="text-pink-400 text-4xl mb-2" />,
+    icon: <FaHeart className="text-pink-500 text-3xl" />,
     description: "Wzruszające pomysły na prezent, które sprawią radość każdej mamie.",
     link: "/categories/dla-mamy",
   },
   {
     title: "Na Urodziny",
-    icon: <FaBirthdayCake className="text-mainRed text-4xl mb-2" />,
+    icon: <FaBirthdayCake className="text-mainRed text-3xl" />,
     description: "Zaskocz jubilata wyjątkowym podarunkiem na jego dzień.",
     link: "/categories/na-urodziny",
   },
   {
     title: "Dla Dzieci",
-    icon: <FaChild className="text-blue-400 text-4xl mb-2" />,
+    icon: <FaChild className="text-blue-400 text-3xl" />,
     description: "Pomysły na prezenty, które zachwycą najmłodszych.",
     link: "/categories/dla-dzieci",
   },
   {
     title: "Dla Miłośnika Kawy",
-    icon: <FaCoffee className="text-amber-800 text-4xl mb-2" />,
+    icon: <FaCoffee className="text-amber-500 text-3xl" />,
     description: "Wyjątkowe gadżety i zestawy dla kawoszy.",
     link: "/categories/kawa",
   },
@@ -30,35 +30,43 @@ const inspirations = [
 
 export default function Inspirations() {
   return (
-    <section className="my-14">
-      <h3 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight text-mainRed mb-6">
+    <section className="my-16">
+      <h3 className="text-2xl md:text-3xl font-bold tracking-tight text-mainRed mb-8 text-center sm:text-left">
         Inspiracje i pomysły na prezent
       </h3>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 md:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {inspirations.map((item, idx) => (
           <Link
             to={item.link}
             key={idx}
-            className="h-full bg-white dark:bg-surface rounded-3xl p-6 sm:p-8 flex flex-col items-center shadow-lg transition-all duration-200 group relative overflow-hidden hover:shadow-[0_4px_24px_0_rgba(255,215,0,0.25),0_1.5px_16px_0_rgba(215,38,61,0.14)] hover:scale-[1.02]"
-            aria-label={item.title}
-            style={{ minHeight: 280 }}
+            className="group relative flex flex-col items-center text-center rounded-3xl p-7 bg-white dark:bg-[color-mix(in_oklab,var(--surface)_90%,black_10%)]
+                       shadow-md border border-transparent transition-all duration-300 hover:shadow-[0_0_25px_rgba(255,215,0,0.2)] hover:border-gold 
+                       hover:scale-[1.03] transform-gpu will-change-transform"
+            style={{
+              minHeight: 260,
+              transformOrigin: "center center", // stabilizuje efekt
+            }}
           >
-            <div className="bg-white dark:bg-surface rounded-full p-4 shadow-sm mb-3 group-hover:scale-110 transition">
+            {/* okrągła ikona */}
+            <div className="w-16 h-16 rounded-full flex items-center justify-center bg-gradient-to-br from-gold-100 to-white dark:from-[#1f243a] dark:to-[#2a304a] shadow-inner group-hover:scale-110 transition-transform duration-300 mb-3">
               {item.icon}
             </div>
-            <div className="font-bold text-lg mb-2 text-mainRed group-hover:text-mainRed text-center">
-              {item.title}
-            </div>
-            <div className="text-gray-700 dark:text-muted text-sm text-center line-clamp-3">
-              {item.description}
-            </div>
 
+            <h4 className="font-bold text-lg text-mainRed dark:text-[var(--accent)] mb-2 transition-colors">
+              {item.title}
+            </h4>
+
+            <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
+              {item.description}
+            </p>
+
+            {/* subtelna poświata */}
             <div
-              className="absolute inset-0 pointer-events-none rounded-3xl opacity-0 group-hover:opacity-70 transition-opacity duration-200"
+              className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-300"
               style={{
                 boxShadow:
-                  "0 0 40px 8px rgba(255,215,0,0.3), 0 0 120px 12px rgba(215,38,61,0.10)",
+                  "0 0 40px 10px rgba(255,215,0,0.15), 0 0 90px 15px rgba(215,38,61,0.08)",
               }}
             />
           </Link>

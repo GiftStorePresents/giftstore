@@ -1,8 +1,8 @@
-// src/routes/adminBlog.ts
+// api/src/routes/adminBlog.ts
 import { Router, type Request, type Response } from "express";
 import { prisma } from "../lib/prisma";
+import { Prisma } from "@prisma/client";
 import { requireAdmin } from "../middleware/requireAdmin";
-import { BLOG_FAKE, type BlogItem } from "../data/blog";
 
 const router: Router = Router();
 
@@ -35,76 +35,119 @@ function toDate(iso?: string | null) {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
-/** Nie zwracaj `undefined` dla pól opcjonalnych – po prostu je pomijaj. */
-function normalizeIncoming(input: any) {
-  return {
-    title: String(input?.title || ""),
-    excerpt: input?.excerpt ?? input?.description ?? "",
-    content: String(input?.content || ""),
-    image: input?.image ? String(input.image) : null,
-    tags: coerceTags(input?.tags),
-    published: !!input?.published,
-  };
+/** Budowa obiektu "data" do create/update — tylko istniejące wartości */
+function buildArticleData(input: any) {
+  const out: Record<string, unknown> = {};
+
+  if (input.title !== undefined) out.title = String(input.title);
+  if (input.slug !== undefined) out.slug = String(input.slug || "");
+  if (input.excerpt !== undefined) out.excerpt = input.excerpt ?? null;
+  if (input.content !== undefined) out.content = String(input.content || "");
+  if (input.image !== undefined) out.image = input.image ? String(input.image) : null;
+
+  // jeśli w modelu masz Json lub String[]
+  if (input.tags !== undefined) out.tags = coerceTags(input.tags);
+
+  if (input.published !== undefined) out.published = !!input.published;
+  if (input.publishedAt !== undefined)
+    out.publishedAt = input.published ? (toDate(input.publishedAt) ?? new Date()) : null;
+
+  // np. authorId jeśli używasz
+  if (input.authorId !== undefined) out.authorId = input.authorId || null;
+
+  return out;
 }
 
-/* -------------------- CRUD -------------------- */
-
-/** LIST /api/admin/blog */
-router.get("/blog", requireAdmin, async (_req: Request, res: Response) => {
+/* -------------------- LIST --------------------
+ * Tryb 1 (domyślny): brak page/limit => ZWRACA TABLICĘ (zgodnie z AdminBlogPage.jsx)
+ * Tryb 2: podane page/limit => obiekt z paginacją { items, page, limit, total, pages }
+ * --------------------------------------------- */
+router.get("/blog", requireAdmin, async (req: Request, res: Response) => {
   try {
-    const rows = await prisma.article.findMany({
-      orderBy: { updatedAt: "desc" },
+    const hasPage = typeof req.query.page !== "undefined" || typeof req.query.limit !== "undefined";
+    const q = String(req.query.q ?? "").trim();
+
+    const where: Prisma.ArticleWhereInput = q
+      ? {
+          OR: [
+            { title: { contains: q, mode: "insensitive" } as any },
+            { slug: { contains: q, mode: "insensitive" } as any },
+          ],
+        }
+      : {};
+
+    if (!hasPage) {
+      // ✅ Zwracamy TABLICĘ
+      const items = await prisma.article.findMany({
+        where,
+        orderBy: [{ updatedAt: "desc" }],
+      });
+      return res.json(items);
+    }
+
+    // 🔄 Tryb paginowany – jeśli ktoś będzie chciał
+    const page = Math.max(parseInt(String(req.query.page || "1"), 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit || "20"), 10) || 20, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const [items, total] = await Promise.all([
+      prisma.article.findMany({
+        where,
+        orderBy: [{ updatedAt: "desc" }],
+        skip,
+        take: limit,
+      }),
+      prisma.article.count({ where }),
+    ]);
+
+    res.json({
+      items,
+      page,
+      limit,
+      total,
+      pages: Math.max(1, Math.ceil(total / limit)),
     });
-    res.json(rows);
   } catch (e: any) {
     res.status(500).json({ error: "internal", message: e?.message });
   }
 });
 
-/** CREATE /api/admin/blog */
+/* -------------------- CREATE -------------------- */
 router.post("/blog", requireAdmin, async (req: Request, res: Response) => {
   try {
-    const { title, slug, excerpt, content, image, tags, published } = req.body || {};
-    if (!title || !content) return res.status(400).json({ error: "title and content required" });
+    const { title, slug, published } = req.body || {};
+    if (!title) return res.status(400).json({ error: "title required" });
 
     // unikalny slug
-    let s = slug ? slugify(slug) : slugify(title);
+    let s = slugify(slug || title);
     let i = 1;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
-      const exists = await prisma.article.findFirst({ where: { slug: s } });
+      const exists = await prisma.article.findFirst({ where: { slug: s }, select: { id: true } });
       if (!exists) break;
-      i += 1;
+      i++;
       s = `${slugify(title)}-${i}`;
     }
 
-    const now = new Date();
-    const row = await prisma.article.create({
-      data: {
-        title,
-        slug: s,
-        excerpt: excerpt || null,
-        content,
-        image: image || null,
-        tags: coerceTags(tags),
-        published: !!published,
-        publishedAt: published ? now : null,
-        authorId: (req as any).user?.id || null,
-      },
-    });
-    res.status(201).json(row);
+    const data = buildArticleData({ ...req.body, slug: s });
+    if (published) data.publishedAt = new Date();
+
+    const created = await prisma.article.create({ data: data as any });
+    res.status(201).json(created);
   } catch (e: any) {
     res.status(500).json({ error: "internal", message: e?.message });
   }
 });
 
-/** READ /api/admin/blog/:id */
+/* -------------------- READ -------------------- */
 router.get("/blog/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id || "");
     if (!id) return res.status(400).json({ error: "missing id" });
 
-    const row = await prisma.article.findFirst({ where: { id } });
+    const row =
+      (await prisma.article.findFirst({ where: { id } })) ||
+      (await prisma.article.findFirst({ where: { slug: id } }));
+
     if (!row) return res.status(404).json({ error: "not found" });
     res.json(row);
   } catch (e: any) {
@@ -112,46 +155,51 @@ router.get("/blog/:id", requireAdmin, async (req: Request, res: Response) => {
   }
 });
 
-/** UPDATE /api/admin/blog/:id */
+/* -------------------- UPDATE -------------------- */
 router.patch("/blog/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id || "");
     if (!id) return res.status(400).json({ error: "missing id" });
 
-    const { title, slug, excerpt, content, image, tags, published } = req.body || {};
-    const data: any = {};
+    const row = await prisma.article.findFirst({ where: { id } });
+    if (!row) return res.status(404).json({ error: "not found" });
 
-    if (title !== undefined) data.title = title;
-    if (excerpt !== undefined) data.excerpt = excerpt;
-    if (content !== undefined) data.content = content;
-    if (image !== undefined) data.image = image;
-    if (tags !== undefined) data.tags = coerceTags(tags);
+    const { title, slug, published } = req.body || {};
+    const data = buildArticleData(req.body);
 
-    if (slug !== undefined) {
-      const nextSlug = slugify(slug || (title ? String(title) : ""));
-      if (nextSlug) {
-        const exists = await prisma.article.findFirst({ where: { slug: nextSlug, NOT: { id } } });
+    // ewentualna zmiana slug
+    if (slug !== undefined || (title !== undefined && !data.slug)) {
+      const next = slugify(slug || (title ? String(title) : row.title));
+      if (next) {
+        const exists = await prisma.article.findFirst({
+          where: { slug: next, NOT: { id } },
+          select: { id: true },
+        });
         if (exists) return res.status(409).json({ error: "slug already in use" });
-        data.slug = nextSlug;
+        data.slug = next;
       }
     }
 
+    // publikacja / cofnięcie publikacji
     if (published !== undefined) {
       data.published = !!published;
-      if (published) data.publishedAt = new Date();
+      if (published && !row.publishedAt) {
+        data.publishedAt = new Date();
+      }
+      if (!published) {
+        data.publishedAt = null;
+      }
     }
 
-    const upd = await prisma.article.updateMany({ where: { id }, data });
-    if (upd.count === 0) return res.status(404).json({ error: "not found" });
-
-    const row = await prisma.article.findFirst({ where: { id } });
-    res.json(row);
+    await prisma.article.update({ where: { id }, data: data as any });
+    const after = await prisma.article.findFirst({ where: { id } });
+    res.json(after);
   } catch (e: any) {
     res.status(500).json({ error: "internal", message: e?.message });
   }
 });
 
-/** DELETE /api/admin/blog/:id */
+/* -------------------- DELETE -------------------- */
 router.delete("/blog/:id", requireAdmin, async (req: Request, res: Response) => {
   try {
     const id = String(req.params.id || "");
@@ -168,22 +216,41 @@ router.delete("/blog/:id", requireAdmin, async (req: Request, res: Response) => 
 
 /* -------------------- IMPORT -------------------- */
 
-type ImportBody = {
-  items?: Array<
-    Partial<BlogItem> & {
-      slug: string;
-    }
-  >;
-  publish?: boolean;
-  overwrite?: boolean;
+type ImportItem = {
+  slug: string;
+  title?: string;
+  excerpt?: string;
+  description?: string;
+  content?: string;
+  image?: string | null;
+  tags?: string[] | string;
+  author?: string;
+  publishedAt?: string;
+  updatedAt?: string;
+  published?: boolean;
 };
 
-/**
- * POST /api/admin/blog/import
- *  - ?source=fake → import z BLOG_FAKE
- *  - lub body.items[] → import z payloadu
- *  - publish (bool, domyślnie true)
- *  - overwrite (bool, gdy true nadpisuje istniejące wpisy)
+type ImportBody = {
+  items?: ImportItem[];
+  publish?: boolean;   // domyślnie true
+  overwrite?: boolean; // nadpisuj istniejące po slug
+};
+
+// Spróbuj dynamicznie wczytać fake dane, ale nie wymagaj pliku
+async function loadFake(): Promise<ImportItem[]> {
+  try {
+    const mod: any = await import("../data/blog").catch(() => null);
+    if (!mod) return [];
+    return (mod.BLOG_FAKE || mod.default || []) as ImportItem[];
+  } catch {
+    return [];
+  }
+}
+
+/** POST /api/admin/blog/import?source=fake
+ *  - albo body.items[]: ImportItem[]
+ *  - publish (bool) — domyślnie true
+ *  - overwrite (bool) — gdy true, nadpisuje istniejące wpisy
  */
 router.post(
   "/blog/import",
@@ -194,70 +261,60 @@ router.post(
       const publish = req.body?.publish !== undefined ? !!req.body.publish : true;
       const overwrite = !!req.body?.overwrite;
 
-      let items: BlogItem[] = [];
+      let items: ImportItem[] = [];
 
       if (source === "fake") {
-        items = Array.isArray(BLOG_FAKE) ? BLOG_FAKE : [];
+        items = await loadFake();
+        if (!items.length) {
+          return res.status(400).json({
+            error: "bad_request",
+            message:
+              "Brak danych do importu: ../data/blog (BLOG_FAKE) nie istnieje lub jest puste. Przekaż body.items[] albo utwórz plik z danymi.",
+          });
+        }
       } else if (Array.isArray(req.body?.items)) {
-        // Zbuduj *BlogItem* bez wstawiania undefined w pola opcjonalne
-        items = req.body.items
-          .map((it) => {
-            const slug = String(it?.slug || "").trim();
-            if (!slug) return null;
-
-            const base: any = {
-              slug,
-              title: String(it?.title || "Artykuł"),
-              excerpt: it?.excerpt ?? it?.description ?? "",
-              content: String(it?.content || ""),
-              image: it?.image ? String(it.image) : null,
-              tags: coerceTags(it?.tags),
-              publishedAt: (it?.publishedAt as string) || new Date().toISOString(),
-            };
-
-            // dodawaj TYLKO, jeśli istnieją:
-            if (it?.description != null) base.description = String(it.description);
-            if (it?.author != null) base.author = String(it.author);
-            if (it?.updatedAt != null) base.updatedAt = String(it.updatedAt);
-
-            return base as BlogItem;
-          })
-          .filter((x): x is BlogItem => !!x);
+        items = req.body.items;
       } else {
         return res
           .status(400)
-          .json({ error: "bad_request", message: "Provide ?source=fake or body.items[]" });
+          .json({ error: "bad_request", message: "Podaj ?source=fake lub body.items[]" });
       }
 
       let created = 0;
       let updated = 0;
 
-      for (const a of items) {
-        const slug = slugify(a.slug);
+      for (const it of items) {
+        const slug = slugify(it.slug || "");
         if (!slug) continue;
 
-        const exists = await prisma.article.findFirst({ where: { slug }, select: { id: true } });
-        const publishedAt = toDate(a.publishedAt) ?? new Date();
+        const exists = await prisma.article.findFirst({
+          where: { slug },
+          select: { id: true },
+        });
 
-        const data = {
-          ...normalizeIncoming(a),
+        const normalized = {
+          title: it.title || "Artykuł",
           slug,
+          excerpt: it.excerpt ?? it.description ?? "",
+          content: it.content || "",
+          image: it.image ? String(it.image) : null,
+          tags: coerceTags(it.tags),
           published: publish,
-          publishedAt: publish ? publishedAt : null,
+          publishedAt: publish ? (toDate(it.publishedAt) ?? new Date()) : null,
         };
 
         if (exists) {
           if (!overwrite) continue;
           await prisma.article.update({
             where: { id: exists.id },
-            data,
+            data: normalized as any,
           });
           updated++;
         } else {
           await prisma.article.create({
             data: {
-              ...data,
-              createdAt: publishedAt,
+              ...(normalized as any),
+              createdAt: toDate(it.publishedAt) ?? new Date(),
             },
           });
           created++;

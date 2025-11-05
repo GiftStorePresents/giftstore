@@ -9,7 +9,6 @@ type OrderStatus =
   | "FULFILLED"
   | "CANCELLED"
   | "REFUNDED"
-  // rozszerzone:
   | "PREPARING"
   | "PACKING"
   | "READY_TO_SHIP"
@@ -60,13 +59,23 @@ const STATUS_OPTIONS: Array<{ code: OrderStatus; label: string }> = [
   { code: "REFUNDED", label: "Zwrócone" },
 ];
 
+// Spójne kolory badge (jak na liście zamówień)
+const STATUS_COLORS: Record<string, { bg: string; color: string; border?: string }> = {
+  PENDING: { bg: "#2a2640", color: "#c5c1ff", border: "rgba(197,193,255,.25)" },
+  PAID: { bg: "#123425", color: "#b6f3d0", border: "rgba(182,243,208,.25)" },
+  PREPARING: { bg: "#243447", color: "#cbe7ff", border: "rgba(203,231,255,.25)" },
+  PACKING: { bg: "#2d2e1f", color: "#efe7b5", border: "rgba(239,231,181,.25)" },
+  READY_TO_SHIP: { bg: "#1d343d", color: "#b6e9f5", border: "rgba(182,233,245,.25)" },
+  SHIPPED: { bg: "#1f2d44", color: "#bcd9ff", border: "rgba(188,217,255,.25)" },
+  FULFILLED: { bg: "#152e26", color: "#bff0d7", border: "rgba(191,240,215,.25)" },
+  CANCELLED: { bg: "#3a1f24", color: "#ffdfe1", border: "rgba(255,223,225,.25)" },
+  REFUNDED: { bg: "#2e223f", color: "#dcc7ff", border: "rgba(220,199,255,.25)" },
+};
+
 // pomocniczo: pobranie CSRF z ciasteczka
 function getCookie(name: string) {
   return (
-    document.cookie
-      .split("; ")
-      .find((row) => row.startsWith(name + "="))
-      ?.split("=")[1] || ""
+    document.cookie.split("; ").find((row) => row.startsWith(name + "="))?.split("=")[1] || ""
   );
 }
 
@@ -112,12 +121,15 @@ export default function AdminOrderDetailsPage() {
 
   async function changeStatus(next: OrderStatus) {
     if (!order) return;
-    if (!confirm(`Zmienić status na: ${STATUS_OPTIONS.find(s => s.code === next)?.label || next}?`)) return;
+    if (
+      !confirm(
+        `Zmienić status na: ${STATUS_OPTIONS.find((s) => s.code === next)?.label || next}?`
+      )
+    )
+      return;
     setBusy(true);
     try {
-      // CSRF token (wymagany przez backend dla metod mutujących)
       const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
-
       const res = await fetch(
         `${API_BASE}/api/admin/orders/${encodeURIComponent(order.id)}/status`,
         {
@@ -144,8 +156,8 @@ export default function AdminOrderDetailsPage() {
 
   if (loading)
     return (
-      <div className="p-6 max-w-5xl mx-auto">
-        <Link to="/admin/orders" className="underline text-mainRed">
+      <div className="admin-skin admin-page p-6 max-w-6xl mx-auto">
+        <Link to="/admin/orders" className="admin-btn px-2 py-1">
           ← Powrót
         </Link>
         <div className="mt-3">Ładowanie…</div>
@@ -154,71 +166,95 @@ export default function AdminOrderDetailsPage() {
 
   if (err)
     return (
-      <div className="p-6 max-w-5xl mx-auto">
-        <Link to="/admin/orders" className="underline text-mainRed">
+      <div className="admin-skin admin-page p-6 max-w-6xl mx-auto">
+        <Link to="/admin/orders" className="admin-btn px-2 py-1">
           ← Powrót
         </Link>
-        <div className="mt-3 text-red-700">{err}</div>
+        <div className="mt-3 text-red-500">{err}</div>
       </div>
     );
 
   if (!order)
     return (
-      <div className="p-6 max-w-5xl mx-auto">
-        <Link to="/admin/orders" className="underline text-mainRed">
+      <div className="admin-skin admin-page p-6 max-w-6xl mx-auto">
+        <Link to="/admin/orders" className="admin-btn px-2 py-1">
           ← Powrót
         </Link>
         <div className="mt-3">Brak danych zamówienia.</div>
       </div>
     );
 
+  const sc = STATUS_COLORS[order.status] || { bg: "#262b39", color: "#e9eef7" };
+
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="admin-skin admin-page p-6 max-w-6xl mx-auto">
+      {/* Pasek akcji */}
       <div className="mb-4 flex items-center gap-3">
-        <Link to="/admin/orders" className="px-3 py-1 border rounded">
+        <Link to="/admin/orders" className="admin-btn px-2 py-1">
           ← Wszystkie zamówienia
         </Link>
-        <a
-          className="ml-auto px-3 py-1 border rounded hover:bg-gray-50"
-          href={`${API_BASE}/api/admin/orders/export.csv`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          Eksport CSV
-        </a>
+        <div className="ml-auto flex items-center gap-2">
+          <span
+            className="admin-badge"
+            style={{ background: sc.bg, color: sc.color, borderColor: sc["border"] || "transparent" }}
+            title={order.status}
+          >
+            {STATUS_OPTIONS.find((s) => s.code === order.status)?.label || order.status}
+          </span>
+          <a
+            className="admin-btn px-2 py-1"
+            href={`${API_BASE}/api/admin/orders/export.csv`}
+            target="_blank"
+            rel="noreferrer"
+            title="Eksport CSV"
+          >
+            Eksport CSV
+          </a>
+        </div>
       </div>
 
-      <h1 className="text-2xl font-bold mt-1 mb-2">
-        Zamówienie {order.number}{" "}
-        <span className="text-sm text-gray-500">({order.id})</span>
-      </h1>
-      <div className="text-sm text-gray-600 mb-4">
-        Klient: {order.user?.email || "—"}
-        {order.user?.name ? ` (${order.user.name})` : ""} • Utw.:{" "}
-        {new Date(order.createdAt).toLocaleString()}
+      {/* Nagłówek */}
+      <div className="mb-3">
+        <h1 className="text-2xl font-bold">
+          Zamówienie {order.number} <span className="text-sm text-[var(--adm-muted)]">({order.id})</span>
+        </h1>
+        <div className="text-sm text-[var(--adm-muted)] mt-1">
+          Klient: {order.user?.email || "—"}
+          {order.user?.name ? ` (${order.user.name})` : ""} • Utw.:{" "}
+          {new Date(order.createdAt).toLocaleString()}
+          {order.updatedAt ? ` • Aktual.: ${new Date(order.updatedAt).toLocaleString()}` : ""}
+        </div>
+      </div>
+
+      {/* Karty metryk */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <MetricCard label="Suma" value={money(order.totalCents)} />
+        <MetricCard label="Produkty (netto)" value={money(order.subtotalCents)} />
+        <MetricCard label="Wysyłka" value={money(order.shippingCents)} />
+        <MetricCard label="Rabat" value={order.discountCents ? `-${money(order.discountCents)}` : "—"} />
       </div>
 
       {/* Adres wysyłki */}
-      <div className="mb-4 border rounded p-3 bg-white">
-        <div className="font-semibold mb-1">Dostawa</div>
+      <div className="admin-card rounded-xl p-4 mb-4">
+        <div className="font-semibold mb-2">Dostawa</div>
         <div>{order.shippingName || "—"}</div>
         <div>{order.shippingAddr1 || "—"}</div>
         <div>
-          {order.shippingZip || ""} {order.shippingCity || ""}
+          {(order.shippingZip || "")} {(order.shippingCity || "")}
         </div>
       </div>
 
       {/* Pozycje */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm border">
-          <thead className="bg-gray-50">
+      <div className="admin-table-wrap">
+        <table className="admin-table text-sm">
+          <thead>
             <tr>
-              <th className="p-2 border text-left">Produkt</th>
-              <th className="p-2 border">Kategoria</th>
-              <th className="p-2 border">SKU</th>
-              <th className="p-2 border">Ilość</th>
-              <th className="p-2 border">Cena (szt.)</th>
-              <th className="p-2 border">Razem</th>
+              <th className="text-left">Produkt</th>
+              <th className="text-left">Kategoria</th>
+              <th className="text-left">SKU</th>
+              <th className="text-center">Ilość</th>
+              <th className="text-right">Cena (szt.)</th>
+              <th className="text-right">Razem</th>
             </tr>
           </thead>
           <tbody>
@@ -230,17 +266,17 @@ export default function AdminOrderDetailsPage() {
               const unit = it.variant?.priceCents ?? it.priceCents ?? 0;
               return (
                 <tr key={i}>
-                  <td className="p-2 border">
+                  <td>
                     {name}
                     {p?.slug ? (
-                      <div className="text-xs text-gray-500">/{p.slug}</div>
+                      <div className="text-xs text-[var(--adm-muted)]">/{p.slug}</div>
                     ) : null}
                   </td>
-                  <td className="p-2 border text-center">{category || "—"}</td>
-                  <td className="p-2 border text-center">{sku || "—"}</td>
-                  <td className="p-2 border text-center">{it.qty}</td>
-                  <td className="p-2 border text-right">{money(unit)}</td>
-                  <td className="p-2 border text-right">{money(unit * it.qty)}</td>
+                  <td className="whitespace-nowrap">{category || "—"}</td>
+                  <td className="whitespace-nowrap">{sku || "—"}</td>
+                  <td className="text-center">{it.qty}</td>
+                  <td className="text-right whitespace-nowrap">{money(unit)}</td>
+                  <td className="text-right whitespace-nowrap">{money(unit * it.qty)}</td>
                 </tr>
               );
             })}
@@ -249,52 +285,57 @@ export default function AdminOrderDetailsPage() {
       </div>
 
       {/* Podsumowanie */}
-      <div className="mt-4 grid gap-1 max-w-sm ml-auto">
-        <div className="flex justify-between">
-          <span>Produkty (netto):</span>
-          <span>{money(order.subtotalCents)}</span>
-        </div>
+      <div className="mt-4 grid gap-1 max-w-sm ml-auto admin-card rounded-xl p-4">
+        <Row label="Produkty (netto)" value={money(order.subtotalCents)} />
         {typeof order.discountCents === "number" && order.discountCents > 0 && (
-          <div className="flex justify-between">
-            <span>Rabat:</span>
-            <span>-{money(order.discountCents)}</span>
-          </div>
+          <Row label="Rabat" value={`-${money(order.discountCents)}`} />
         )}
-        {typeof order.shippingCents === "number" && (
-          <div className="flex justify-between">
-            <span>Wysyłka:</span>
-            <span>{money(order.shippingCents)}</span>
-          </div>
+        {typeof order.shippingCents === "number" && <Row label="Wysyłka" value={money(order.shippingCents)} />}
+        {typeof order.paymentSurchargeCents === "number" && order.paymentSurchargeCents > 0 && (
+          <Row label="Dopłata płatności" value={money(order.paymentSurchargeCents)} />
         )}
-        {typeof order.paymentSurchargeCents === "number" &&
-          order.paymentSurchargeCents > 0 && (
-            <div className="flex justify-between">
-              <span>Dopłata płatności:</span>
-              <span>{money(order.paymentSurchargeCents)}</span>
-            </div>
-          )}
-        <div className="flex justify-between font-bold border-t pt-2">
-          <span>Suma:</span>
-          <span>{money(order.totalCents)}</span>
-        </div>
+        <Row label="Suma" value={money(order.totalCents)} bold top />
       </div>
 
-      {/* Status — szybka zmiana */}
-      <div className="mt-6 flex flex-wrap gap-2">
-        {STATUS_OPTIONS.map((s) => (
-          <button
-            key={s.code}
-            disabled={busy || order.status === s.code}
-            onClick={() => changeStatus(s.code)}
-            className={`px-3 py-1 border rounded ${
-              order.status === s.code ? "bg-gray-200" : "hover:bg-gray-50"
-            } disabled:opacity-60`}
-            title={s.code}
-          >
-            {s.label}
-          </button>
-        ))}
+      {/* Zmiana statusu */}
+      <div className="mt-6">
+        <div className="mb-2 font-semibold">Zmień status</div>
+        <div className="flex flex-wrap gap-2">
+          {STATUS_OPTIONS.map((s) => (
+            <button
+              key={s.code}
+              disabled={busy || order.status === s.code}
+              onClick={() => changeStatus(s.code)}
+              className={`admin-btn px-3 py-1 ${
+                order.status === s.code ? "opacity-70 cursor-not-allowed" : ""
+              }`}
+              title={s.code}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/* ——— Pomocnicze komponenty ——— */
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="admin-card rounded-xl p-4">
+      <div className="text-sm text-[var(--adm-muted)]">{label}</div>
+      <div className="text-xl font-extrabold">{value}</div>
+    </div>
+  );
+}
+
+function Row({ label, value, bold, top }: { label: string; value: string; bold?: boolean; top?: boolean }) {
+  return (
+    <div className={`flex justify-between ${top ? "pt-2 border-t" : ""}`}>
+      <span className={bold ? "font-bold" : ""}>{label}:</span>
+      <span className={bold ? "font-bold" : ""}>{value}</span>
     </div>
   );
 }
