@@ -1,7 +1,20 @@
 // api/src/seed/popularGiftsData.ts
-// Re-eksport danych i typu z katalogu shared
+// =======================================================
+// Ten plik tylko RE-EKSportuje dane z katalogu shared.
+// Musimy używać ścieżki względnej, bo aliasy @shared
+// nie działają po kompilacji w Node.js / GitHub Actions.
+// =======================================================
 
-import productsGiftsData, { type PopularGift } from "@shared/popularGiftsData";
+// ŚCIEŻKA: api/src/seed → src → api → (root) → shared
+// czyli: ../../../shared/popularGiftsData
 
-export default productsGiftsData;
+import popularGiftsData, { type PopularGift } from "../../../shared/popularGiftsData";
+
+// eksport typu (dla TypeScript)
 export type { PopularGift };
+
+// eksport nazwany (używany np. jako popularGiftsData)
+export { popularGiftsData };
+
+// eksport domyślny (używany jako import popularGiftsData from ...)
+export default popularGiftsData;
