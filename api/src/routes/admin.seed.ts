@@ -5,9 +5,10 @@ import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../lib/prisma";
 
-// Dane do zasiania (ESM/TS alias dopasuj do projektu)
-import popularGiftsData from "@shared/popularGiftsData";
-// ⬇️ NOWE: import seeda inspiracji (ścieżkę dostosuj do swojego configa path aliases)
+// ✅ Poprawiony import – BEZ aliasu @shared
+import popularGiftsData from "../seed/popularGiftsData";
+
+// ⬇️ Seed inspiracji – ten import jest OK względem dist struktury
 import { seedInspirations } from "../../../shared/inspirations.seed";
 
 /* =========================================================
@@ -35,7 +36,7 @@ function normalizeCategory(input?: string | null, tags?: string[] | null): strin
   const byField = pick(input);
   if (byField) return byField;
 
-  for (const t of (tags || [])) {
+  for (const t of tags || []) {
     const m = pick(t);
     if (m) return m;
   }
@@ -76,7 +77,9 @@ function coercePriceCents(raw: any): number {
     return Math.max(0, Math.round(raw.priceCents));
   }
   const zl =
-    typeof raw?.price === "number" ? raw.price : Number(String(raw?.price || "").replace(",", "."));
+    typeof raw?.price === "number"
+      ? raw.price
+      : Number(String(raw?.price || "").replace(",", "."));
   if (Number.isFinite(zl)) return Math.max(0, Math.round(zl * 100));
   return 0;
 }
@@ -109,19 +112,24 @@ async function downloadImageToUploads(srcUrl: string, uploadsDir: string): Promi
   try {
     const r = await fetch(src, {
       signal: ac.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; GiftStoreSeeder/1.0; +https://blinkshop.pl)" },
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; GiftStoreSeeder/1.0; +https://blinkshop.pl)",
+      },
     });
     if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
 
     const ab = await r.arrayBuffer();
     const buf = Buffer.from(ab);
 
-    const cleanNoQuery = (String(src).split("?")[0] ?? "");
-    const clean = (cleanNoQuery.split("#")[0] ?? "");
+    const cleanNoQuery = String(src).split("?")[0] ?? "";
+    const clean = (cleanNoQuery.split("#")[0] ?? "") as string;
     const extMatch = clean.match(/\.(jpe?g|png|webp|gif|avif)$/i);
     const ext = extMatch ? extMatch[0].toLowerCase() : ".jpg";
 
-    const filename = `seed_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
+    const filename = `seed_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2)}${ext}`;
     const abs = path.join(uploadsDir, filename);
 
     await fs.mkdir(uploadsDir, { recursive: true });
@@ -135,7 +143,9 @@ async function downloadImageToUploads(srcUrl: string, uploadsDir: string): Promi
 
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const user = (req as any).user;
-  if (!user || user.role !== "ADMIN") return res.status(403).json({ error: "forbidden" });
+  if (!user || user.role !== "ADMIN") {
+    return res.status(403).json({ error: "forbidden" });
+  }
   next();
 }
 
@@ -191,7 +201,9 @@ async function seedPopularRestoreAware(
       const priceCents = coercePriceCents(raw);
       const imageUrl = firstImageUrl(raw);
       const featured =
-        typeof raw?.featured === "boolean" ? !!raw.featured : !!(raw?.bestseller || raw?.promo);
+        typeof raw?.featured === "boolean"
+          ? !!raw.featured
+          : !!(raw?.bestseller || raw?.promo);
 
       const categorySlug = normalizeCategory(raw?.category ?? null, raw?.tags ?? null);
       const category = await ensureCategory(categorySlug);
@@ -207,12 +219,15 @@ async function seedPopularRestoreAware(
           skippedRows.push({ slug, reason: "exists-insert-skip" });
           continue;
         }
+
         const product = await prisma.product.create({
           data: {
             name: String(raw?.name ?? "").trim() || slug,
             slug,
-            description: raw?.description != null ? String(raw.description) : null,
-            brand: raw?.brand != null ? String(raw.brand) : "PopularGifts",
+            description:
+              raw?.description != null ? String(raw.description) : null,
+            brand:
+              raw?.brand != null ? String(raw.brand) : "PopularGifts",
             categoryId: category?.id ?? null,
             featured,
             deletedAt: null,
@@ -220,7 +235,12 @@ async function seedPopularRestoreAware(
               create: {
                 sku:
                   raw?.sku ||
-                  (slug ? slug.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 30) : randomUUID()),
+                  (slug
+                    ? slug
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]+/g, "-")
+                        .slice(0, 30)
+                    : randomUUID()),
                 priceCents: Number(priceCents || 0),
                 stock: Number(raw?.stock ?? 100),
                 color: raw?.color || null,
@@ -236,9 +256,16 @@ async function seedPopularRestoreAware(
           try {
             const relUrl = await downloadImageToUploads(imageUrl, uploadsRoot);
             await prisma.media.create({
-              data: { productId: product.id, url: relUrl, kind: "image", position: 0 },
+              data: {
+                productId: product.id,
+                url: relUrl,
+                kind: "image",
+                position: 0,
+              },
             });
-          } catch {/* cicho */}
+          } catch {
+            // cicho
+          }
         }
 
         created.push({ id: product.id, slug: product.slug });
@@ -252,8 +279,10 @@ async function seedPopularRestoreAware(
           data: {
             name: String(raw?.name ?? "").trim() || slug,
             slug,
-            description: raw?.description != null ? String(raw.description) : null,
-            brand: raw?.brand != null ? String(raw.brand) : "PopularGifts",
+            description:
+              raw?.description != null ? String(raw.description) : null,
+            brand:
+              raw?.brand != null ? String(raw.brand) : "PopularGifts",
             categoryId: category?.id ?? null,
             featured,
             deletedAt: null,
@@ -261,7 +290,12 @@ async function seedPopularRestoreAware(
               create: {
                 sku:
                   raw?.sku ||
-                  (slug ? slug.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 30) : randomUUID()),
+                  (slug
+                    ? slug
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]+/g, "-")
+                        .slice(0, 30)
+                    : randomUUID()),
                 priceCents: Number(priceCents || 0),
                 stock: Number(raw?.stock ?? 100),
                 color: raw?.color || null,
@@ -277,9 +311,16 @@ async function seedPopularRestoreAware(
           try {
             const relUrl = await downloadImageToUploads(imageUrl, uploadsRoot);
             await prisma.media.create({
-              data: { productId: product.id, url: relUrl, kind: "image", position: 0 },
+              data: {
+                productId: product.id,
+                url: relUrl,
+                kind: "image",
+                position: 0,
+              },
             });
-          } catch {/* cicho */}
+          } catch {
+            // cicho
+          }
         }
 
         created.push({ id: product.id, slug: product.slug });
@@ -291,18 +332,30 @@ async function seedPopularRestoreAware(
 
       const productUpdateData = {
         name: String(raw?.name ?? existing.name),
-        description: raw?.description != null ? String(raw.description) : existing.description,
-        brand: raw?.brand != null ? String(raw.brand) : existing.brand ?? "PopularGifts",
+        description:
+          raw?.description != null
+            ? String(raw.description)
+            : existing.description,
+        brand:
+          raw?.brand != null
+            ? String(raw.brand)
+            : existing.brand ?? "PopularGifts",
         categoryId: category?.id ?? existing.categoryId ?? null,
         featured,
         ...(isSoftDeleted ? { deletedAt: null as Date | null } : {}),
       };
 
       if (isSoftDeleted) {
-        await prisma.product.update({ where: { id: existing.id }, data: productUpdateData });
+        await prisma.product.update({
+          where: { id: existing.id },
+          data: productUpdateData,
+        });
         restored++;
       } else {
-        await prisma.product.update({ where: { id: existing.id }, data: productUpdateData });
+        await prisma.product.update({
+          where: { id: existing.id },
+          data: productUpdateData,
+        });
         updated++;
       }
 
@@ -310,7 +363,12 @@ async function seedPopularRestoreAware(
       const nextSku =
         raw?.sku ||
         v?.sku ||
-        (slug ? slug.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 30) : randomUUID());
+        (slug
+          ? slug
+              .toUpperCase()
+              .replace(/[^A-Z0-9]+/g, "-")
+              .slice(0, 30)
+          : randomUUID());
 
       if (v) {
         await prisma.variant.update({
@@ -321,7 +379,10 @@ async function seedPopularRestoreAware(
             stock: Number(raw?.stock ?? v.stock ?? 100),
             color: raw?.color !== undefined ? raw.color : v.color,
             size: raw?.size !== undefined ? raw.size : v.size,
-            personalize: raw?.personalize !== undefined ? !!raw.personalize : !!v.personalize,
+            personalize:
+              raw?.personalize !== undefined
+                ? !!raw.personalize
+                : !!v.personalize,
           },
         });
       } else {
@@ -342,9 +403,16 @@ async function seedPopularRestoreAware(
         try {
           const relUrl = await downloadImageToUploads(imageUrl, uploadsRoot);
           await prisma.media.create({
-            data: { productId: existing.id, url: relUrl, kind: "image", position: 0 },
+            data: {
+              productId: existing.id,
+              url: relUrl,
+              kind: "image",
+              position: 0,
+            },
           });
-        } catch {/* cicho */}
+        } catch {
+          // cicho
+        }
       }
     } catch (rowErr: any) {
       skipped++;
@@ -367,11 +435,16 @@ async function handlerSeedPopular(req: Request, res: Response) {
 
   const downloadsEnv = String(process.env.SEED_DOWNLOAD_IMAGES || "").trim() === "1";
   const downloadImages =
-    req.body?.downloadImages !== undefined ? !!req.body.downloadImages : downloadsEnv;
+    req.body?.downloadImages !== undefined
+      ? !!req.body.downloadImages
+      : downloadsEnv;
 
   const uploadsRoot = path.resolve(process.cwd(), "uploads");
 
-  const items = Array.isArray(popularGiftsData) ? (popularGiftsData as SeedItem[]) : [];
+  // ✅ używamy nazwy zgodnej z importem
+  const items = Array.isArray(popularGiftsData)
+    ? (popularGiftsData as SeedItem[])
+    : [];
   if (!items.length) {
     const payload = {
       ok: true,
@@ -423,18 +496,18 @@ async function handlerSeedPopular(req: Request, res: Response) {
   });
 }
 
-// ⬇️ NOWE: prosty handler do seedowania inspiracji
+// ⬇️ Seedowanie inspiracji
 async function handlerSeedInspirations(_req: Request, res: Response) {
-  await seedInspirations(); // shared/inspirations.seed.ts
+  await seedInspirations();
   return res.status(200).json({ ok: true, message: "Inspirations seeded" });
 }
 
 const router: Router = Router();
 
-// Dotychczasowe seedowanie popularnych produktów
+// Seed popularnych produktów
 router.post("/seed/popular", requireAdmin, handlerSeedPopular);
 
-// ⬇️ NOWE: seedowanie inspiracji
+// Seed inspiracji
 router.post("/seed/inspirations", requireAdmin, handlerSeedInspirations);
 
 export default router;

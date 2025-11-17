@@ -6,7 +6,9 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/requireAuth";
 import { requireRole } from "../middleware/roles";
 import { logAdminAction } from "../lib/adminLog";
-import productsGiftsData, { type PopularGift } from "@shared/popularGiftsData"; // ✅ upewnij się, że to istnieje
+
+// ✅ POPRAWIONY IMPORT – bez @shared
+import productsGiftsData, { type PopularGift } from "../seed/popularGiftsData";
 
 const uploadDir = path.join(process.cwd(), "uploads");
 const router: Router = Router();
@@ -83,7 +85,7 @@ router.post(
     const updated: string[] = [];
     const skipped: string[] = [];
 
-    for (const raw of productsGiftsData) {
+    for (const raw of productsGiftsData as PopularGift[]) {
       const slug = String(raw.slug || "").trim();
       if (!slug) continue;
 
@@ -179,7 +181,9 @@ router.post(
             color: raw.color ?? firstVariant.color ?? null,
             size: raw.size ?? firstVariant.size ?? null,
             personalize:
-              typeof raw.personalize === "boolean" ? raw.personalize : firstVariant.personalize,
+              typeof raw.personalize === "boolean"
+                ? raw.personalize
+                : firstVariant.personalize,
           },
         });
       } else {
@@ -214,7 +218,9 @@ router.post(
             }
           }
 
-          const hasMedia = await prisma.media.count({ where: { productId: updatedProduct.id } });
+          const hasMedia = await prisma.media.count({
+            where: { productId: updatedProduct.id },
+          });
           if (mode === "overwrite" || hasMedia === 0) {
             const rel = await downloadImageToUploads(raw.imageUrl);
             await prisma.media.create({
