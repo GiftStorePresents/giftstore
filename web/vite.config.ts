@@ -22,19 +22,13 @@ const ENV_API =
 const API_TARGET = String(ENV_API).replace(/\/+$/, "");
 
 // ───────────────────────────────────────────
-// WAŻNE: ustawienie base dla GitHub Pages
-// Twój repo: giftstore
-// Finalny URL: https://giftstorepresents.github.io/giftstore/
-//
-// To musi być koniecznie: "/giftstore/"
+// WAŻNE: base dla GitHub Pages
+// Repo: giftstore
+// URL:  https://giftstorepresents.github.io/giftstore/
 // ───────────────────────────────────────────
-const BASE_PATH =
-  process.env.NODE_ENV === "production"
-    ? "/giftstore/"
-    : "/";
-
 export default defineConfig({
-  base: BASE_PATH,
+  base: "/giftstore/",            // ⬅️ KLUCZOWA LINIA
+
   plugins: [
     tsconfigPaths(),
     react(),
@@ -85,11 +79,10 @@ export default defineConfig({
     target: "es2020",
     sourcemap: true,
   },
-  
+
   preview: {
     port: DEV_PORT,
     strictPort: true,
-
     proxy: {
       "/api": {
         target: API_TARGET,
