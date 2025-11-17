@@ -17,7 +17,8 @@ jobs:
     services:
       postgres:
         image: postgres:16
-        ports: [ "5432:5432" ]
+        ports:
+          - "5432:5432"
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -84,7 +85,7 @@ jobs:
         working-directory: web
         run: pnpm build
 
-      # 🔧 Bez heredoc: tworzymy minimalną konfigurację/spec, jeśli ich nie ma
+      # 🔧 Minimalny projekt Cypress w web/
       - name: Ensure Cypress project in web/
         run: |
           mkdir -p web/cypress/e2e web/cypress/support web/cypress/fixtures
@@ -128,7 +129,7 @@ jobs:
         with:
           project: web
           start: |
-            pnpm --dir api start
+            node api/dist/server.js
             pnpm --dir web preview --port 3000 --strictPort
           wait-on: >-
             http://localhost:3000, http://localhost:4000/api/health
