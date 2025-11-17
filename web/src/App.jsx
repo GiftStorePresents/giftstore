@@ -146,7 +146,7 @@ function NotFound() {
       <h1 className="text-3xl font-bold mb-3">404 — Nic tu nie ma</h1>
       <p className="text-muted-foreground">
         Sprawdź adres lub wróć na{" "}
-        <a className="underline" href="/">
+        <a className="underline" href={import.meta.env.BASE_URL}>
           stronę główną
         </a>
         .
