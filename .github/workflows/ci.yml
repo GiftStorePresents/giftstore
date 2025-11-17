@@ -13,7 +13,8 @@ jobs:
     services:
       postgres:
         image: postgres:16
-        ports: [ "5432:5432" ]
+        ports:
+          - "5432:5432"
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -43,22 +44,21 @@ jobs:
 
       - name: Create api/.env (local Postgres)
         run: |
-          mkdir -p api
-          {
-            echo "NODE_ENV=test"
-            echo "PORT=4000"
-            echo "SITE_URL=${{ secrets.SITE_URL }}"
-            echo "API_URL=http://localhost:4000"
-            echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/giftstore?schema=public"
-            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}"
-            echo "STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}"
-            echo "STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}"
-            echo "SMTP_HOST=${{ secrets.SMTP_HOST }}"
-            echo "SMTP_PORT=${{ secrets.SMTP_PORT }}"
-            echo "SMTP_USER=${{ secrets.SMTP_USER }}"
-            echo "SMTP_PASS=${{ secrets.SMTP_PASS }}"
-            echo "SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}"
-          } > api/.env
+          cat > api/.env << 'EOF'
+          NODE_ENV=test
+          PORT=4000
+          SITE_URL=${{ secrets.SITE_URL }}
+          API_URL=http://localhost:4000
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/giftstore?schema=public
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          SMTP_HOST=${{ secrets.SMTP_HOST }}
+          SMTP_PORT=${{ secrets.SMTP_PORT }}
+          SMTP_USER=${{ secrets.SMTP_USER }}
+          SMTP_PASS=${{ secrets.SMTP_PASS }}
+          SLACK_WEBHOOK_URL=${{ secrets.SLACK_WEBHOOK_URL }}
+          EOF
 
       - name: Generate Prisma Client
         working-directory: api
