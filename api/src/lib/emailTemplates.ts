@@ -120,7 +120,9 @@ export type TemplateName =
   | "adminPaymentInfo"      // admin – płatność przyjęta (skrót)
   | "orderStatusUpdate"     // klient – dowolna zmiana statusu
   | "orderShipped"          // klient – wysyłka z trackingiem
-  | "invoiceReady";         // ⬅ NOWE: faktura gotowa
+  | "invoiceReady"          // faktura gotowa
+  | "reviewInvite"          // ⬅ NOWE: zaproszenie do opinii
+  | "reviewReminder";       // ⬅ NOWE: przypomnienie o opinii (opcjonalne)
 
 export const subjects: Record<TemplateName, (data: any) => string> = {
   verifyCode: () => "Twój kod weryfikacyjny",
@@ -144,12 +146,16 @@ export const subjects: Record<TemplateName, (data: any) => string> = {
   orderShipped: (data: { order?: OrderLike }) =>
     `Wysłane — ${data?.order?.number || data?.order?.id || ""}`,
 
-  // ⬇ NOWE — temat maila z fakturą
   invoiceReady: (data: { order?: OrderLike; invoiceNumber?: string }) => {
     const no = data?.order?.number || data?.order?.id || "";
     const inv = data?.invoiceNumber || "";
     return `Faktura ${inv} — ${no}`;
   },
+
+  // ==== NOWE: tematy opinii ====
+  reviewInvite: (d: { name?: string | null }) =>
+    `Jak oceniasz zamówienie w ${brandName()}? ⭐`,
+  reviewReminder: () => `Przypomnienie: podziel się opinią o ${brandName()}`,
 };
 
 /** =========================
@@ -510,13 +516,13 @@ export const templates: Record<TemplateName, (data: any) => string> = {
   invoiceReady: ({
     order,
     invoiceNumber,
-    downloadUrl,   // ujednolicony parametr linku
+    downloadUrl,
     logoUrl,
     brand,
   }: {
     order: OrderLike;
     invoiceNumber?: string;
-    downloadUrl: string;   // absolutny URL do endpointu pobrania PDF
+    downloadUrl: string;
     logoUrl?: string;
     brand?: string;
   }) => {
@@ -551,6 +557,104 @@ export const templates: Record<TemplateName, (data: any) => string> = {
   </div>
 </body></html>`;
   },
+
+  /* =========================
+   *  NOWE: e-maile opinii
+   * ========================= */
+
+  /** Zaproszenie do opinii (klient) */
+  reviewInvite: ({
+    name,
+    orderId,
+    token,
+    brandUrl,
+    logoUrl,
+    brand,
+  }: {
+    name?: string | null;
+    orderId: string;
+    token: string;
+    brandUrl: string;   // np. https://giftstore.pl
+    logoUrl?: string;
+    brand?: string;
+  }) => {
+    const link = `${brandUrl.replace(/\/+$/,'')}/review/${encodeURIComponent(orderId)}/${encodeURIComponent(token)}`;
+
+    return `<!DOCTYPE html>
+<html lang="pl"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /></head>
+<body style="margin:0; background:${C.bg};">
+  <div style="max-width:640px; margin:24px auto; background:${C.card}; border-radius:16px; padding:0; border:1px solid ${C.border}; overflow:hidden;">
+    <div style="padding:24px;">${logo(logoUrl)}</div>
+    <div style="padding:12px 24px 0; color:${C.text};">
+      <h1 style="margin:0 0 8px; font-size:22px; color:${C.red};">Cześć${name ? `, ${name}` : ""}!</h1>
+      <p style="margin:0; font-size:14px; color:${C.subtext};">
+        Jak oceniasz swoje ostatnie zamówienie w ${brandName(brand)}? Twoja opinia jest dla nas bardzo ważna. 💛
+      </p>
+    </div>
+
+    <div style="padding:16px 24px 8px;">
+      <a href="${link}" target="_blank" rel="noreferrer"
+         style="display:inline-block;background:${C.gold};color:${C.red};font-weight:800;padding:12px 20px;border-radius:9999px;text-decoration:none;letter-spacing:.3px;">
+        Wystaw opinię
+      </a>
+    </div>
+
+    <div style="padding:0 24px 16px; color:${C.subtext}; font-size:12px;">
+      Jeśli przycisk nie działa, skopiuj ten link:<br/>
+      <span style="color:${C.text}; word-break:break-all;">${link}</span>
+    </div>
+
+    <div style="padding:16px 24px; background:#fafafa; color:${C.subtext}; font-size:12px;">
+      Dziękujemy za zakupy w ${brandName(brand)}! 🎁
+    </div>
+  </div>
+</body></html>`;
+  },
+
+  /** (Opcjonalnie) przypomnienie o opinii — identyczny CTA, inny wstęp */
+  reviewReminder: ({
+    name,
+    orderId,
+    token,
+    brandUrl,
+    logoUrl,
+    brand,
+  }: {
+    name?: string | null;
+    orderId: string;
+    token: string;
+    brandUrl: string;
+    logoUrl?: string;
+    brand?: string;
+  }) => {
+    const link = `${brandUrl.replace(/\/+$/,'')}/review/${encodeURIComponent(orderId)}/${encodeURIComponent(token)}`;
+    return `<!DOCTYPE html>
+<html lang="pl"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /></head>
+<body style="margin:0; background:${C.bg};">
+  <div style="max-width:640px; margin:24px auto; background:${C.card}; border-radius:16px; padding:0; border:1px solid ${C.border}; overflow:hidden;">
+    <div style="padding:24px;">${logo(logoUrl)}</div>
+    <div style="padding:12px 24px 0; color:${C.text};">
+      <h1 style="margin:0 0 8px; font-size:22px; color:${C.red};">Będzie nam miło poznać Twoją opinię</h1>
+      <p style="margin:0; font-size:14px; color:${C.subtext};">
+        ${name ? `${name}, ` : ""}czy znajdziesz chwilkę, aby ocenić swoje zamówienie w ${brandName(brand)}?
+      </p>
+    </div>
+    <div style="padding:16px 24px 8px;">
+      <a href="${link}" target="_blank" rel="noreferrer"
+         style="display:inline-block;background:${C.gold};color:${C.red};font-weight:800;padding:12px 20px;border-radius:9999px;text-decoration:none;letter-spacing:.3px;">
+        Wystaw opinię
+      </a>
+    </div>
+    <div style="padding:0 24px 16px; color:${C.subtext}; font-size:12px;">
+      Jeśli przycisk nie działa, skopiuj ten link:<br/>
+      <span style="color:${C.text}; word-break:break-all;">${link}</span>
+    </div>
+    <div style="padding:16px 24px; background:#fafafa; color:${C.subtext}; font-size:12px;">
+      Dziękujemy za pomoc — to wiele dla nas znaczy!
+    </div>
+  </div>
+</body></html>`;
+  },
 };
 
 /** =========================
@@ -559,3 +663,7 @@ export const templates: Record<TemplateName, (data: any) => string> = {
 export const paymentConfirmationEmail = templates.paymentConfirmation;
 export const adminPaymentInfoEmail = templates.adminPaymentInfo;
 export const invoiceReadyEmail = templates.invoiceReady;
+
+// NOWE aliasy opinii:
+export const reviewInviteEmail = templates.reviewInvite;
+export const reviewReminderEmail = templates.reviewReminder;

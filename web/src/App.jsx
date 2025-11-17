@@ -1,23 +1,33 @@
 // =======================================================================
 // src/App.jsx — Gift Store
-// Wersja: 2025-11-02
-// Zmiany:
-// - Dodano trasę /admin/hero (AdminHeroPage) pod AdminRoute
-// - Zachowano „miękkie” odświeżanie kategorii po visibilitychange
-// - Reszta tras bez zmian
+// Wersja: 2025-11-10
+// Zmiany w tej wersji:
+// - ✅ Dodano InspirationPage + trasy /inspiracje/:slug i /inspirations/:slug
+// - ✅ ScrollToTop po zmianie trasy
+// - ✅ GA4 page_view listener
+// - ✅ NotFound 404 fallback
+// - ✅ Zachowane AdminRoute i reszta istniejących tras
+// Uwaga: ten plik to czysty JSX (bez TS), zgodny z Vite + React Router 6/7.
 // =======================================================================
 
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState, Suspense, lazy } from "react";
 
+// ───────────────────────────────────────────────────────────────────────────────
+// Layout & UI
+// ───────────────────────────────────────────────────────────────────────────────
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import ThemeSwitch from "./components/ThemeSwitch";
 import Toast from "./components/Toast";
 import NewsletterNotice from "./components/NewsletterNotice";
+import LaunchCountdown from "./components/LaunchCountdown";
 
+// ───────────────────────────────────────────────────────────────────────────────
+// Pages (eager-loaded — kluczowe widoki)
+// ───────────────────────────────────────────────────────────────────────────────
 import ProductPage from "./pages/ProductPage";
-import CartPage from "./pages/CartPage";
+// import CartPage from "./pages/CartPage"; // ⛔ wyłączone – idziemy bezpośrednio do checkout
 import CategoryPage from "./pages/CategoryPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -29,6 +39,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import MagicLogin from "./pages/MagicLogin";
 import ConfirmEmailChangePage from "./pages/ConfirmEmailChangePage";
+import InspirationPage from "./pages/InspirationPage"; // ✅ NOWE
 
 import AdminPage from "./pages/AdminPage";
 import AdminRoute from "./components/AdminRoute";
@@ -39,15 +50,13 @@ import AdminOrdersPage from "./pages/AdminOrdersPage";
 import AdminOrderDetailsPage from "./pages/AdminOrderDetailsPage";
 import AdminBlogPage from "./pages/AdminBlogPage";
 import AdminCouponsPage from "./pages/AdminCouponsPage";
-
-// Kategorie (admin)
+import AdminInspirationsPage from "./pages/AdminInspirationsPage"; // panel inspiracji
 import AdminCategoriesPage from "./pages/AdminCategoriesPage";
-
-// Szczegóły produktu (admin)
 import AdminProductDetailsPage from "./pages/AdminProductDetailsPage";
-
-// 🔥 NOWE: strona edycji Hero
 import AdminHeroPage from "./pages/AdminHeroPage";
+
+import ReviewLandingPage from "./pages/ReviewLandingPage";
+import ReviewThanksPage from "./pages/ReviewThanksPage";
 
 import MyOrdersPage from "./pages/MyOrdersPage";
 import MyOrderDetailsPage from "./pages/MyOrderDetailsPage";
@@ -60,35 +69,43 @@ import ThankYouPage from "./pages/ThankYouPage";
 import CheckoutSuccessRedirectPage from "./pages/CheckoutSuccessRedirectPage";
 import ContactPage from "./pages/ContactPage";
 
-import "./App.css";
-import { useAuth } from "./context/AuthContext";
-
-// (opcjonalnie) zasianie indeksu wyszukiwarki z API.
-// Jeśli nie masz tego pliku, po prostu ZAKOMENTUJ linijkę poniżej.
-import SearchDatasetBootstrapper from "./context/SearchDatasetBootstrapper";
-
+// ───────────────────────────────────────────────────────────────────────────────
+// Lazy pages (legal) — oszczędzamy chunk początkowy
+// ───────────────────────────────────────────────────────────────────────────────
 const RegulaminPage = lazy(() => import("./pages/Legal/RegulaminPage"));
 const PolitykaPrywatnosciPage = lazy(() => import("./pages/Legal/PolitykaPrywatnosciPage"));
 const FAQPage = lazy(() => import("./pages/Legal/FAQPage"));
 
+// ───────────────────────────────────────────────────────────────────────────────
+import "./App.css";
+import { useAuth } from "./context/AuthContext";
+// Opcjonalna inicjalizacja indeksu wyszukiwania (z API)
+import SearchDatasetBootstrapper from "./context/SearchDatasetBootstrapper";
+
+// Konfiguracja GA4
 const GA_ID = import.meta.env?.VITE_GA_MEASUREMENT_ID;
 
-/* =========================================================
-   Google Analytics 4 page_view listener
-   ========================================================= */
+// =======================================================================
+// Drobne komponenty pomocnicze w jednym pliku
+// =======================================================================
+
+/** GA4 page_view listener */
 function GAListener() {
   const location = useLocation();
 
   useEffect(() => {
     if (!GA_ID || window.__gaInitialized) return;
 
+    // wstrzyknięcie gtag
     const s = document.createElement("script");
     s.async = true;
     s.src = `https://www.googletagmanager.com/gtag/js?id=${GA_ID}`;
     document.head.appendChild(s);
 
     window.dataLayer = window.dataLayer || [];
-    function gtag(){ window.dataLayer.push(arguments); }
+    function gtag() {
+      window.dataLayer.push(arguments);
+    }
     window.gtag = gtag;
 
     gtag("js", new Date());
@@ -109,9 +126,36 @@ function GAListener() {
   return null;
 }
 
-/* =========================================================
-   Post-login redirect
-   ========================================================= */
+/** Przydatne przy SPA — przewija do góry po każdej zmianie trasy */
+function ScrollToTop() {
+  const location = useLocation();
+  useEffect(() => {
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+  }, [location.pathname, location.search]);
+  return null;
+}
+
+/** Prymitywny 404 fallback */
+function NotFound() {
+  return (
+    <div className="mx-auto max-w-3xl px-4 py-16 text-center">
+      <h1 className="text-3xl font-bold mb-3">404 — Nic tu nie ma</h1>
+      <p className="text-muted-foreground">
+        Sprawdź adres lub wróć na{" "}
+        <a className="underline" href="/">
+          stronę główną
+        </a>
+        .
+      </p>
+    </div>
+  );
+}
+
+/** Po zalogowaniu wracamy tam, gdzie użytkownik chciał wejść */
 const REDIRECT_KEY = "postLoginRedirect";
 function PostLoginRedirect() {
   const { user } = useAuth();
@@ -132,9 +176,9 @@ function PostLoginRedirect() {
   return null;
 }
 
-/* =========================================================
-   App Shell — Layout + Routing
-   ========================================================= */
+// =======================================================================
+// Główna powłoka aplikacji (layout + routing)
+// =======================================================================
 function AppShell({ setToast }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -156,13 +200,13 @@ function AppShell({ setToast }) {
 
     if (message) setToast?.(message);
 
+    // Czyścimy query param i odświeżamy URL bez nawigacji
     params.delete("newsletter");
     const newSearch = params.toString();
     navigate(
       { pathname: location.pathname, search: newSearch ? `?${newSearch}` : "" },
       { replace: true }
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.key]);
 
   return (
@@ -183,12 +227,20 @@ function AppShell({ setToast }) {
         Przejdź do treści
       </a>
 
-      {/* (opcjonalnie) inicjalizacja indeksu wyszukiwarki z API */}
+      {/* Opcjonalna inicjalizacja indeksu wyszukiwarki z API */}
       <SearchDatasetBootstrapper />
 
+      {/* Nagłówek */}
       <Header />
 
-      {/* Główna kolumna treści — centrowanie i zapas na dole */}
+      {/* Licznik otwarcia sklepu — tylko na stronie głównej */}
+      {location.pathname === "/" && (
+        <section className="container mx-auto mt-4 md:mt-6 px-4 sm:px-5 md:px-6 lg:px-8">
+          <LaunchCountdown />
+        </section>
+      )}
+
+      {/* Główna kolumna treści */}
       <main
         id="main"
         className="
@@ -202,7 +254,7 @@ function AppShell({ setToast }) {
       >
         <Suspense fallback={<div className="text-center py-12 text-muted">Ładowanie…</div>}>
           <Routes>
-            {/* Auth */}
+            {/* ───────────────────── Auth ───────────────────── */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/forgot" element={<ForgotPasswordPage />} />
@@ -210,7 +262,7 @@ function AppShell({ setToast }) {
             <Route path="/magic" element={<MagicLogin />} />
             <Route path="/confirm-email-change" element={<ConfirmEmailChangePage />} />
 
-            {/* Admin */}
+            {/* ───────────────────── Admin ───────────────────── */}
             <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
             <Route path="/admin/products" element={<AdminRoute><AdminProductsPage /></AdminRoute>} />
             <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
@@ -219,64 +271,73 @@ function AppShell({ setToast }) {
             <Route path="/admin/orders/:orderId" element={<AdminRoute><AdminOrderDetailsPage /></AdminRoute>} />
             <Route path="/admin/blog" element={<AdminRoute><AdminBlogPage /></AdminRoute>} />
             <Route path="/admin/coupons" element={<AdminRoute><AdminCouponsPage /></AdminRoute>} />
+            <Route path="/admin/inspirations" element={<AdminRoute><AdminInspirationsPage /></AdminRoute>} />
             <Route path="/admin/categories" element={<AdminRoute><AdminCategoriesPage /></AdminRoute>} />
-            {/* 🔥 NOWA TRASA: edycja Hero */}
-            <Route path="/admin/hero" element={<AdminRoute><AdminHeroPage /></AdminRoute>} />
-            {/* U Ciebie było bez AdminRoute — zostawiamy zgodnie z oryginałem */}
             <Route path="/admin/products/:id" element={<AdminProductDetailsPage />} />
+            <Route path="/admin/hero" element={<AdminRoute><AdminHeroPage /></AdminRoute>} />
 
-            {/* Client orders */}
+            {/* ───────────────────── Client orders ───────────────────── */}
             <Route path="/orders" element={<MyOrdersPage />} />
             <Route path="/orders/:id" element={<MyOrderDetailsPage />} />
 
-            {/* Home */}
+            {/* ───────────────────── Public ───────────────────── */}
             <Route path="/" element={<HomePage />} />
 
             {/* Shopping */}
-            <Route path="/product/:slug" element={<ProductPage setToast={setToast} />} />
-            <Route path="/categories/:slug" element={<CategoryPage setToast={setToast} />} />
-            <Route path="/checkout" element={<CheckoutPage setToast={setToast} />} />
-            <Route path="/cart" element={<CartPage />} />
+            <Route path="/product/:slug" element={<ProductPage />} />
+            <Route path="/categories/:slug" element={<CategoryPage />} />
+            <Route path="/checkout" element={<CheckoutPage />} />
+            {/* <Route path="/cart" element={<CartPage />} /> */} {/* ⛔ wyłączone – bezpośrednio do checkout */}
             <Route path="/thank-you" element={<ThankYouPage />} />
             <Route path="/checkout/success" element={<CheckoutSuccessRedirectPage />} />
 
-            {/* User */}
+            {/* ✅ Inspiracje — obie wersje ścieżki */}
+            <Route path="/inspiracje/:slug" element={<InspirationPage />} />
+            <Route path="/inspirations/:slug" element={<InspirationPage />} />
+
+            {/* ───────────────────── User ───────────────────── */}
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/wishlist" element={<WishlistPage />} />
-            <Route path="/search" element={<SearchResults setToast={setToast} />} />
+            <Route path="/search" element={<SearchResults />} />
 
-            {/* Blog */}
+            {/* ───────────────────── Blog ───────────────────── */}
             <Route path="/blog" element={<BlogIndexPage />} />
             <Route path="/blog/:slug" element={<ArticlePage />} />
 
-            {/* Legal */}
+            {/* ───────────────────── Legal ───────────────────── */}
             <Route path="/regulamin" element={<RegulaminPage />} />
             <Route path="/polityka-prywatnosci" element={<PolitykaPrywatnosciPage />} />
             <Route path="/faq" element={<FAQPage />} />
             <Route path="/contact" element={<ContactPage />} />
+
+            {/* ───────────────────── Public: ocena zamówienia ───────────────────── */}
+            <Route path="/review/:orderId/:token" element={<ReviewLandingPage />} />
+            <Route path="/review/thanks" element={<ReviewThanksPage />} />
+
+            {/* ───────────────────── 404 ───────────────────── */}
+            <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
       </main>
 
+      {/* Stopka + dodatki */}
       <NewsletterNotice className="relative z-10" />
-
       <ThemeSwitch />
       <Footer />
     </div>
   );
 }
 
-/* =========================================================
-   Root App Component
-   ========================================================= */
+// =======================================================================
+// Root App (shell + globalne akcesoria)
+// =======================================================================
 export default function App() {
   const [toast, setToast] = useState("");
 
-  // ✅ „Miękkie” odświeżanie kategorii, gdy karta wraca na pierwszy plan
+  // Odświeżenie listy kategorii po powrocie do zakładki (jeśli UI nasłuchuje)
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "visible") {
-        // sygnał dla CategoryNav / CategoryTiles / Hero chips
         window.dispatchEvent(new CustomEvent("categories:refresh"));
       }
     };
@@ -287,6 +348,7 @@ export default function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <GAListener />
+      <ScrollToTop />
       <PostLoginRedirect />
       <AppShell setToast={setToast} />
       <Toast message={toast} onClose={() => setToast("")} />

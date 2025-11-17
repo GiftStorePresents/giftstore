@@ -7,6 +7,8 @@ import { prisma } from "../lib/prisma";
 
 // Dane do zasiania (ESM/TS alias dopasuj do projektu)
 import popularGiftsData from "@shared/popularGiftsData";
+// ⬇️ NOWE: import seeda inspiracji (ścieżkę dostosuj do swojego configa path aliases)
+import { seedInspirations } from "../../../shared/inspirations.seed";
 
 /* =========================================================
    Helpers
@@ -33,7 +35,7 @@ function normalizeCategory(input?: string | null, tags?: string[] | null): strin
   const byField = pick(input);
   if (byField) return byField;
 
-  for (const t of tags || []) {
+  for (const t of (tags || [])) {
     const m = pick(t);
     if (m) return m;
   }
@@ -138,7 +140,7 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
 }
 
 /* =========================================================
-   Restore-aware upsert — core
+   Restore-aware upsert — core (popular gifts)
    ========================================================= */
 
 type SeedItem = {
@@ -194,7 +196,6 @@ async function seedPopularRestoreAware(
       const categorySlug = normalizeCategory(raw?.category ?? null, raw?.tags ?? null);
       const category = await ensureCategory(categorySlug);
 
-      // Pobierz istniejący rekord (wraz z wariantem i mediami). Brak select => dostajemy też scalars (w tym deletedAt).
       const existing = await prisma.product.findUnique({
         where: { slug },
         include: { variants: { take: 1 }, media: true },
@@ -206,7 +207,6 @@ async function seedPopularRestoreAware(
           skippedRows.push({ slug, reason: "exists-insert-skip" });
           continue;
         }
-        // CREATE
         const product = await prisma.product.create({
           data: {
             name: String(raw?.name ?? "").trim() || slug,
@@ -238,9 +238,7 @@ async function seedPopularRestoreAware(
             await prisma.media.create({
               data: { productId: product.id, url: relUrl, kind: "image", position: 0 },
             });
-          } catch {
-            /* cicho */
-          }
+          } catch {/* cicho */}
         }
 
         created.push({ id: product.id, slug: product.slug });
@@ -250,7 +248,6 @@ async function seedPopularRestoreAware(
 
       // UPSERT (restore-aware)
       if (!existing) {
-        // CREATE gdy brak
         const product = await prisma.product.create({
           data: {
             name: String(raw?.name ?? "").trim() || slug,
@@ -282,9 +279,7 @@ async function seedPopularRestoreAware(
             await prisma.media.create({
               data: { productId: product.id, url: relUrl, kind: "image", position: 0 },
             });
-          } catch {
-            /* cicho */
-          }
+          } catch {/* cicho */}
         }
 
         created.push({ id: product.id, slug: product.slug });
@@ -292,10 +287,8 @@ async function seedPopularRestoreAware(
         continue;
       }
 
-      // istnieje — sprawdź soft-delete
       const isSoftDeleted = !!(existing as any)?.deletedAt;
 
-      // Update / Restore wspólne pola
       const productUpdateData = {
         name: String(raw?.name ?? existing.name),
         description: raw?.description != null ? String(raw.description) : existing.description,
@@ -306,20 +299,13 @@ async function seedPopularRestoreAware(
       };
 
       if (isSoftDeleted) {
-        await prisma.product.update({
-          where: { id: existing.id },
-          data: productUpdateData,
-        });
+        await prisma.product.update({ where: { id: existing.id }, data: productUpdateData });
         restored++;
       } else {
-        await prisma.product.update({
-          where: { id: existing.id },
-          data: productUpdateData,
-        });
+        await prisma.product.update({ where: { id: existing.id }, data: productUpdateData });
         updated++;
       }
 
-      // Wariant (pierwszy)
       const v = existing.variants?.[0] || null;
       const nextSku =
         raw?.sku ||
@@ -352,16 +338,13 @@ async function seedPopularRestoreAware(
         });
       }
 
-      // Media (tylko jeśli brak)
       if (downloadImages && imageUrl && (existing.media?.length ?? 0) === 0) {
         try {
           const relUrl = await downloadImageToUploads(imageUrl, uploadsRoot);
           await prisma.media.create({
             data: { productId: existing.id, url: relUrl, kind: "image", position: 0 },
           });
-        } catch {
-          /* cicho */
-        }
+        } catch {/* cicho */}
       }
     } catch (rowErr: any) {
       skipped++;
@@ -372,24 +355,16 @@ async function seedPopularRestoreAware(
     }
   }
 
-  return {
-    added,
-    updated,
-    restored,
-    skipped,
-    created,
-    skippedRows,
-  };
+  return { added, updated, restored, skipped, created, skippedRows };
 }
 
 /* =========================================================
-   Handler + Router
+   Handlers + Router
    ========================================================= */
 
 async function handlerSeedPopular(req: Request, res: Response) {
   const mode = coerceMode(req.body?.mode || req.query?.mode);
 
-  // Pobieranie obrazów domyślnie wyłączone; włącz przez ENV/param
   const downloadsEnv = String(process.env.SEED_DOWNLOAD_IMAGES || "").trim() === "1";
   const downloadImages =
     req.body?.downloadImages !== undefined ? !!req.body.downloadImages : downloadsEnv;
@@ -401,14 +376,12 @@ async function handlerSeedPopular(req: Request, res: Response) {
     const payload = {
       ok: true,
       mode,
-      // nowe
       added: 0,
       updated: 0,
       restored: 0,
       skipped: 0,
       created: [] as Array<{ id: string; slug: string }>,
       skippedRows: [] as Array<{ slug?: string; reason: string }>,
-      // aliasy (wsteczna kompatybilność z UI)
       createdCount: 0,
       updatedCount: 0,
       restoredCount: 0,
@@ -424,7 +397,6 @@ async function handlerSeedPopular(req: Request, res: Response) {
     mode,
   });
 
-  // Log z oboma zestawami pól
   const logPayload = {
     mode,
     added: result.added,
@@ -433,7 +405,6 @@ async function handlerSeedPopular(req: Request, res: Response) {
     skipped: result.skipped,
     createdSize: result.created.length,
     skippedRowsSize: result.skippedRows.length,
-    // aliasy:
     createdCount: result.added,
     updatedCount: result.updated,
     restoredCount: result.restored,
@@ -441,7 +412,6 @@ async function handlerSeedPopular(req: Request, res: Response) {
   };
   (req as any).log?.info(logPayload, "[seed:popular] done");
 
-  // Zwrot z aliasami dla starego frontu
   return res.status(200).json({
     ok: true,
     mode,
@@ -453,7 +423,18 @@ async function handlerSeedPopular(req: Request, res: Response) {
   });
 }
 
+// ⬇️ NOWE: prosty handler do seedowania inspiracji
+async function handlerSeedInspirations(_req: Request, res: Response) {
+  await seedInspirations(); // shared/inspirations.seed.ts
+  return res.status(200).json({ ok: true, message: "Inspirations seeded" });
+}
+
 const router: Router = Router();
+
+// Dotychczasowe seedowanie popularnych produktów
 router.post("/seed/popular", requireAdmin, handlerSeedPopular);
+
+// ⬇️ NOWE: seedowanie inspiracji
+router.post("/seed/inspirations", requireAdmin, handlerSeedInspirations);
 
 export default router;

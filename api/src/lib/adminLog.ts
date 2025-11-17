@@ -4,13 +4,20 @@ import { prisma } from "../lib/prisma";
 import { Prisma } from "@prisma/client";
 
 /* ────────────────────────────────────────────────────────────────────────────
+   WSPÓLNE TYPY
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/** Dozwolone typy encji w logach admina. */
+export type LogEntityType = "User" | "Product" | "Variant" | "Inspiration";
+
+/* ────────────────────────────────────────────────────────────────────────────
    LOG WRITER (helper do zapisywania zdarzeń admina)
    ──────────────────────────────────────────────────────────────────────────── */
 
 export type LogInput = {
   actorId: string; // wymagany
   action: string;
-  entityType: "User" | "Product" | "Variant";
+  entityType: LogEntityType; // ⬅️ teraz obejmuje też "Inspiration"
   entityId: string;
   before?: unknown;
   after?: unknown;
@@ -62,7 +69,8 @@ export async function logAdminAction(input: LogInput) {
    ADMIN LOGS ROUTER (GET /api/admin/logs)
    ──────────────────────────────────────────────────────────────────────────── */
 
-type EntityType = "User" | "Product" | "Variant" | "";
+/** Typ filtra w query — dopuszcza też pusty string (brak filtra). */
+type EntityTypeFilter = LogEntityType | "";
 
 function toInt(val: unknown, def: number): number {
   const n = parseInt(String(val ?? ""), 10);
@@ -81,7 +89,7 @@ export const adminLogRouter: Router = Router();
  *   page?: number (1..)
  *   limit?: number (10..100)
  *   q?: string               – szuka w action, entityId, actor.email
- *   entityType?: "User" | "Product" | "Variant"
+ *   entityType?: "User" | "Product" | "Variant" | "Inspiration"
  *   action?: string
  */
 adminLogRouter.get("/logs", async (req: Request, res: Response) => {
@@ -91,12 +99,12 @@ adminLogRouter.get("/logs", async (req: Request, res: Response) => {
     const limit = Math.min(100, Math.max(10, limitRaw));
 
     const q = toStr(req.query.q);
-    const entityType = toStr(req.query.entityType) as EntityType;
+    const entityType = toStr(req.query.entityType) as EntityTypeFilter;
     const action = toStr(req.query.action);
 
     const where: Prisma.AdminActionWhereInput = {};
 
-    if (entityType) where.entityType = entityType as Exclude<EntityType, "">;
+    if (entityType) where.entityType = entityType as Exclude<EntityTypeFilter, "">;
     if (action) where.action = { contains: action, mode: "insensitive" };
 
     if (q) {

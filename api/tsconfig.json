@@ -11,7 +11,8 @@
     "baseUrl": "../",
     "paths": {
       "@/*": ["api/src/*"],
-      "@shared/*": ["shared/*"]
+      "@shared/*": ["shared/*"],
+      "@prisma/client": ["api/node_modules/@prisma/client"]
     },
 
     "strict": true,

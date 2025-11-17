@@ -16,10 +16,18 @@ export default function GiftOfTheWeek({ setToast }) {
       </section>
     );
 
-  // ✅ dynamiczny limit zamiast sztywnego 8
+  // ✅ dynamiczny limit oraz defensywne mapowanie → ProductCard ma pełen zestaw pól
   const selected = Array.isArray(items)
-    ? items.slice(0, Math.min(visibleCount, items.length)).map(mapApiProductToCard)
+    ? items
+        .slice(0, Math.min(visibleCount, items.length))
+        .map((p) => mapApiProductToCard(p))
+        .filter(Boolean)
     : [];
+
+  // (opcjonalnie) debug w konsoli
+  if (typeof window !== "undefined") {
+    window.__GIFTS__ = selected;
+  }
 
   return (
     <section className="my-14">
@@ -37,7 +45,7 @@ export default function GiftOfTheWeek({ setToast }) {
         "
       >
         {selected.map((gift, i) => (
-          <div key={gift?.id || i} className="h-full w-full max-w-[340px]">
+          <div key={gift?.id ?? gift?.slug ?? i} className="h-full w-full max-w-[340px]">
             <ProductCard product={gift} setToast={setToast} />
           </div>
         ))}

@@ -1,10 +1,70 @@
+// api/src/routes/orders.ts
 import { Router, type Request, type Response } from "express";
 import { prisma } from "../lib/prisma";
 import { ok, fail } from "../lib/http";
 import { sendMail } from "../lib/mailer";
 import { subjects, templates } from "../lib/emailTemplates";
 
-const router: Router = Router();
+export const orders: Router = Router();
+
+/* =======================================================================================
+ *  3.A) MINIMALNY WALIDATOR KOSZYKA — POST /api/orders/validate
+ *  body: { items: [{ slug: string, qty: number }] }
+ *  res:  { ok: boolean, issues: Array<{ slug, available, requested }> }
+ *  (UX-first: przy błędzie backendu zwracamy ok:true, issues:[])
+ * ======================================================================================= */
+orders.post("/orders/validate", async (req: Request, res: Response) => {
+  try {
+    // Wejście → upewniamy się, że mamy czyste typy
+    const rawItems: unknown = req.body?.items;
+    const items: Array<{ slug: string; qty: number }> = Array.isArray(rawItems)
+      ? rawItems
+          .map((i: any) => ({
+            slug: String(i?.slug ?? "").trim(),
+            qty: Number(i?.qty ?? 0) || 0,
+          }))
+          .filter((i) => i.slug.length > 0)
+      : [];
+
+    const slugs: string[] = Array.from(new Set(items.map((i) => i.slug)));
+    if (slugs.length === 0) return res.json({ ok: true, issues: [] });
+
+    // Zakładamy stock na wariantach → sumujemy
+    type Row = { slug: string; variants: Array<{ stock: number | null }> };
+    const rows = (await prisma.product.findMany({
+      where: { slug: { in: slugs }, deletedAt: null },
+      select: { slug: true, variants: { select: { stock: true } } },
+    })) as Row[];
+
+    const stockBySlug = new Map<string, number>(
+      rows.map((r) => [
+        r.slug,
+        (r.variants || []).reduce((sum: number, v: { stock: number | null }) => {
+          return sum + Math.max(0, v.stock ?? 0);
+        }, 0),
+      ])
+    );
+
+    const issues = items
+      .map((it) => {
+        const avail = stockBySlug.get(it.slug);
+        if (typeof avail !== "number") return null; // brak danych → traktuj jako OK
+        if (it.qty <= avail) return null;
+        return { slug: it.slug, available: avail, requested: it.qty };
+      })
+      .filter(Boolean) as Array<{ slug: string; available: number; requested: number }>;
+
+    return res.json({ ok: issues.length === 0, issues });
+  } catch {
+    // UX-first: nie blokuj twardo gdy backend chwilowo nie odpowiada
+    return res.json({ ok: true, issues: [] });
+  }
+});
+
+/* =======================================================================================
+ *  ADMIN ROUTES — montowane jako /api/admin/orders...
+ *  Uwaga: podłącz to na serwerze jako app.use("/api", orders)
+ * ======================================================================================= */
 
 /** Dozwolone statusy zgodne z enumem w schema.prisma */
 const ORDER_STATUSES = new Set([
@@ -22,8 +82,8 @@ const ORDER_STATUSES = new Set([
 /** CSV helper */
 const csvEscape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
 
-/** GET /api/admin/orders */
-router.get("/", async (req: Request, res: Response) => {
+/** GET /api/admin/orders (lista) */
+orders.get("/admin/orders", async (req: Request, res: Response) => {
   try {
     const q = (req.query.q as string | undefined)?.trim() || "";
     const rawLimit = parseInt((req.query.limit as string | undefined) || "20", 10);
@@ -50,7 +110,6 @@ router.get("/", async (req: Request, res: Response) => {
         orderBy: { createdAt: "desc" },
         include: {
           user: { select: { id: true, email: true, name: true } },
-          // lista nie potrzebuje pozycji – lżej
         },
       }),
       prisma.order.count({ where }),
@@ -66,11 +125,12 @@ router.get("/", async (req: Request, res: Response) => {
 /**
  * GET /api/admin/orders/export.csv
  * Eksport na POZIOMIE POZYCJI (OrderItem). Do każdej pozycji dokładamy category/slug/brand.
+ * FIX TS: 'category' teraz string|null (name lub slug, zamiast obiektu)
  */
-router.get("/export.csv", async (_req: Request, res: Response) => {
+orders.get("/admin/orders/export.csv", async (_req: Request, res: Response) => {
   try {
     // 1) zamówienia z pozycjami + user
-    const orders = await prisma.order.findMany({
+    const ordersList = await prisma.order.findMany({
       orderBy: { createdAt: "desc" },
       include: {
         user: { select: { id: true, email: true, name: true } },
@@ -91,21 +151,40 @@ router.get("/export.csv", async (_req: Request, res: Response) => {
 
     // 2) unikatowe productId
     const productIds = new Set<string>();
-    for (const o of orders) {
+    for (const o of ordersList) {
       for (const it of o.items) {
         if (it.productId) productIds.add(it.productId);
       }
     }
 
-    // 3) map produkt -> { category, slug, brand }
-    const productsMap = new Map<string, { category: string | null; slug: string; brand: string | null }>();
+    // 3) map produkt -> { category: string|null, slug: string, brand: string|null }
+    const productsMap = new Map<
+      string,
+      { category: string | null; slug: string; brand: string | null }
+    >();
+
     if (productIds.size > 0) {
       const products = await prisma.product.findMany({
         where: { id: { in: Array.from(productIds) } },
-        select: { id: true, category: true, slug: true, brand: true },
+        select: {
+          id: true,
+          slug: true,
+          brand: true,
+          category: { select: { name: true, slug: true } },
+        },
       });
+
       for (const p of products) {
-        productsMap.set(p.id, { category: p.category, slug: p.slug, brand: p.brand });
+        const catStr: string | null =
+          (p as any)?.category?.name ??
+          (p as any)?.category?.slug ??
+          null;
+
+        productsMap.set(p.id, {
+          category: catStr,
+          slug: p.slug,
+          brand: p.brand,
+        });
       }
     }
 
@@ -133,7 +212,7 @@ router.get("/export.csv", async (_req: Request, res: Response) => {
     ];
     const lines: string[] = [header.map(csvEscape).join(",")];
 
-    for (const o of orders) {
+    for (const o of ordersList) {
       if (o.items.length > 0) {
         for (const it of o.items) {
           const prod = it.productId ? productsMap.get(it.productId) : undefined;
@@ -162,9 +241,25 @@ router.get("/export.csv", async (_req: Request, res: Response) => {
         }
       } else {
         const row = [
-          o.id, o.number, o.status, o.createdAt.toISOString(),
-          o.user?.id || "", o.user?.email || "", o.user?.name || "",
-          "", "", 0, 0, 0, "", "", "", "", "", "", o.totalCents,
+          o.id,
+          o.number,
+          o.status,
+          o.createdAt.toISOString(),
+          o.user?.id || "",
+          o.user?.email || "",
+          o.user?.name || "",
+          "",
+          "",
+          0,
+          0,
+          0,
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          o.totalCents,
         ];
         lines.push(row.map(csvEscape).join(","));
       }
@@ -180,8 +275,8 @@ router.get("/export.csv", async (_req: Request, res: Response) => {
   }
 });
 
-/** GET /api/admin/orders/:orderId */
-router.get("/:orderId", async (req: Request, res: Response) => {
+/** GET /api/admin/orders/:orderId (detale) */
+orders.get("/admin/orders/:orderId", async (req: Request, res: Response) => {
   try {
     const orderId = (req.params.orderId || "").trim();
     if (!orderId) return fail(res, 400, "orderId is required");
@@ -191,7 +286,14 @@ router.get("/:orderId", async (req: Request, res: Response) => {
       include: {
         user: { select: { id: true, email: true, name: true } },
         items: {
-          select: { qty: true, priceCents: true, name: true, sku: true, color: true, size: true },
+          select: {
+            qty: true,
+            priceCents: true,
+            name: true,
+            sku: true,
+            color: true,
+            size: true,
+          },
         },
       },
     });
@@ -216,7 +318,7 @@ router.get("/:orderId", async (req: Request, res: Response) => {
  *   estDelivery?: string
  * }
  */
-router.patch("/:orderId/status", async (req: Request, res: Response) => {
+orders.patch("/admin/orders/:orderId/status", async (req: Request, res: Response) => {
   try {
     const orderId = (req.params.orderId || "").trim();
     if (!orderId) return fail(res, 400, "orderId is required");
@@ -322,4 +424,4 @@ router.patch("/:orderId/status", async (req: Request, res: Response) => {
   }
 });
 
-export default router;
+export default orders;

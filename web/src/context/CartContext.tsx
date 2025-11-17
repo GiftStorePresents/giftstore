@@ -96,6 +96,13 @@ export type ServerValidateResponse = {
 
 type LastAction = "add" | "update" | "clear" | null;
 
+/** Odpowiedź dla helpera syncCartWithStock (na potrzeby toastów/UI) */
+export type SyncCartResult = {
+  changed: boolean;
+  removed: string[]; // nazwy/slug pozycji usuniętych
+  adjusted: Array<{ slug: string; from: number; to: number }>; // ilości skorygowane
+};
+
 /* =======================================================================================
  *  CONTEXT API
  * ======================================================================================= */
@@ -152,6 +159,9 @@ export interface CartContextProps {
   // Stałe dla UI
   SHIPPING_BASE: number;
   FREE_SHIPPING_FROM: number;
+
+  // NEW: weryfikacja stanów i korekta koszyka
+  syncCartWithStock: () => Promise<SyncCartResult>;
 }
 
 /* =======================================================================================
@@ -294,6 +304,56 @@ export function CartProvider({ children }: { children: ReactNode }) {
       else if (act === "clear") window.dispatchEvent(new Event("cart:clear"));
     });
   }, [cart]);
+
+  /* -------- NEW: auto-weryfikacja stanów i korekta koszyka -------- */
+  const syncCartWithStock = useCallback(async (): Promise<SyncCartResult> => {
+    try {
+      if (!cart.length) return { changed: false, removed: [], adjusted: [] };
+
+      const slugs = cart.map((i) => i.slug).join(",");
+      const url = `${API_URL}/api/products/availability?slugs=${encodeURIComponent(slugs)}`;
+
+      const r = await fetch(url, { credentials: "include" });
+
+      // ŁAGODNA OBSŁUGA 404/500 — brak endpointu lub chwilowy błąd = „bez zmian”
+      if (!r.ok) {
+        return { changed: false, removed: [], adjusted: [] };
+      }
+
+      const data = (await r.json()) as Array<{ slug: string; stock: number }>;
+      const bySlug = new Map<string, number>(data.map((d) => [d.slug, d.stock]));
+
+      let changed = false;
+      const removed: string[] = [];
+      const adjusted: Array<{ slug: string; from: number; to: number }> = [];
+
+      // najpierw usuwamy wyprzedane
+      for (const item of cart) {
+        const stock = bySlug.get(item.slug);
+        if (typeof stock !== "number") continue;
+        if (stock <= 0) {
+          removeFromCart(item.slug);
+          removed.push(item.name || item.slug);
+          changed = true;
+        }
+      }
+      // potem korygujemy ilości
+      for (const item of cart) {
+        const stock = bySlug.get(item.slug);
+        if (typeof stock !== "number" || stock <= 0) continue;
+        if (item.quantity > stock) {
+          updateQuantity(item.slug, stock);
+          adjusted.push({ slug: item.slug, from: item.quantity, to: stock });
+          changed = true;
+        }
+      }
+
+      return { changed, removed, adjusted };
+    } catch {
+      // sieciówka padła – nie przeszkadzamy użytkownikowi
+      return { changed: false, removed: [], adjusted: [] };
+    }
+  }, [cart, removeFromCart, updateQuantity]);
 
   /* -------- Shipping mutators with EARLY RETURN guards -------- */
   const setShippingMethod = useCallback((method: ShippingMethod) => {
@@ -501,34 +561,45 @@ export function CartProvider({ children }: { children: ReactNode }) {
       // Stałe
       SHIPPING_BASE,
       FREE_SHIPPING_FROM,
+
+      // NEW
+      syncCartWithStock,
     }),
     [
+      // Items
       cart,
       addToCart,
       removeFromCart,
       updateQuantity,
       clearCart,
+      // Coupon
       discountCode,
       appliedCoupon,
       discount,
       applyCoupon,
       clearCoupon,
+      // Shipping
       shipping,
       setShippingMethod,
       setShippingCarrier,
       setLocker,
       setPickupPoint,
       setAddress,
+      // Payment
       paymentMethod,
+      // Totals
       subtotal,
       afterDiscount,
       shippingCost,
       paymentSurcharge,
       total,
+      // Drawer
       drawerOpen,
       openDrawer,
       closeDrawer,
       toggleDrawer,
+      // NEW
+      syncCartWithStock,
     ]
   );
 

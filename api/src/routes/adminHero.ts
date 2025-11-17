@@ -1,26 +1,22 @@
 // api/src/routes/adminHero.ts
-import { Router, type Request, type Response, type NextFunction } from "express";
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import { prisma } from "../lib/prisma";
 
-const router: Router = Router();
+/* Dwa osobne routery:
+ * - adminHeroRouter  → montowany pod /api/admin  → /api/admin/hero
+ * - publicHeroRouter → montowany pod /api/public → /api/public/hero
+ */
+const adminHeroRouter: express.Router = express.Router();
+const publicHeroRouter: express.Router = express.Router();
 
 /* ============================================
- * Domyślna, „bezpieczna” konfiguracja Hero
+ * Typy i drobna walidacja / sanityzacja
  * ============================================ */
-const DEFAULT_HERO: HeroPayload = {
-  title: "Najlepsze prezenty na każdą okazję!",
-  subtitle: "Znajdź coś wyjątkowego dla bliskich — szybka wysyłka, bogata oferta.",
-  imageUrl: "/images/pexels-tofros-com-83191-257855.jpg",
-  mobileUrl: "/images/pexels-tofros-com-83191-257855.jpg",
-  ctaText: "Przeglądaj prezenty",
-  ctaHref: "/categories/wszystkie",
-  enabled: true,
-};
-
-/* ============================================
- * Typy i mała walidacja / sanityzacja
- * ============================================ */
-type HeroPayload = {
+export type HeroPayload = {
   title: string;
   subtitle?: string;
   imageUrl?: string;
@@ -50,7 +46,21 @@ function bool(v: unknown): boolean | undefined {
   return undefined;
 }
 
-/** rzutowanie i sanityzacja payloadu */
+/* ============================================
+ * Domyślna konfiguracja Hero (bezpieczna)
+ * ============================================ */
+const DEFAULT_HERO: HeroPayload = {
+  title: "Najlepsze prezenty na każdą okazję!",
+  subtitle:
+    "Znajdź coś wyjątkowego dla bliskich — szybka wysyłka, bogata oferta.",
+  imageUrl: "/images/pexels-tofros-com-83191-257855.jpg",
+  mobileUrl: "/images/pexels-tofros-com-83191-257855.jpg",
+  ctaText: "Przeglądaj prezenty",
+  ctaHref: "/categories/wszystkie",
+  enabled: true,
+};
+
+/** Rzutowanie i sanityzacja payloadu */
 function sanitizeHeroPayload(input: unknown): HeroPayload {
   const src = isObject(input) ? input : {};
   const out: HeroPayload = {
@@ -63,16 +73,13 @@ function sanitizeHeroPayload(input: unknown): HeroPayload {
     enabled: bool(src.enabled),
   };
 
-  // tytuł obowiązkowy
   if (!out.title) out.title = DEFAULT_HERO.title;
-
-  // domyślny enabled = true
   if (typeof out.enabled === "undefined") out.enabled = true;
 
   return out;
 }
 
-/** Selektor wyłącznie publicznych pól */
+/** Selektor publicznych pól (bez śmieci) */
 function toPublic(v: any): HeroPayload {
   const s = sanitizeHeroPayload(v);
   return {
@@ -87,11 +94,13 @@ function toPublic(v: any): HeroPayload {
 }
 
 /* ============================================
- * Auth helper
+ * Auth helper — tylko ADMIN
  * ============================================ */
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const role = (req as any)?.user?.role;
-  if (role !== "ADMIN") return res.status(403).json({ error: "forbidden" });
+  if (role !== "ADMIN") {
+    return res.status(403).json({ error: "forbidden" });
+  }
   next();
 }
 
@@ -117,82 +126,104 @@ async function writeHero(value: HeroPayload): Promise<HeroPayload> {
 }
 
 /* ============================================
- * ADMIN: odczyt pełnego payloadu (zawsze coś zwróć)
+ * ADMIN ROUTES → montowane pod /api/admin
+ * finalne ścieżki:
+ *   GET    /api/admin/hero
+ *   PATCH  /api/admin/hero
+ *   PUT    /api/admin/hero
+ *   DELETE /api/admin/hero
+ *   POST   /api/admin/hero/reset
  * ============================================ */
-router.get("/admin/hero", requireAdmin, async (_req, res) => {
+
+adminHeroRouter.get("/hero", requireAdmin, async (req: Request, res: Response) => {
   try {
+    (req as any).log?.info?.("[adminHero] GET /admin/hero");
     const existing = await readHero();
-    // Zwróć istniejące albo domyślne (żeby formularz nigdy nie był „pusty”)
     return res.json(existing ?? DEFAULT_HERO);
   } catch (e: any) {
-    return res.status(500).json({ error: "failed_to_read_hero", details: String(e?.message || e) });
+    return res.status(500).json({
+      error: "failed_to_read_hero",
+      details: String(e?.message || e),
+    });
   }
 });
 
-/* ============================================
- * ADMIN: PUT — zapis pełny
- * ============================================ */
-router.put("/admin/hero", requireAdmin, async (req, res) => {
+adminHeroRouter.put("/hero", requireAdmin, async (req: Request, res: Response) => {
   try {
+    (req as any).log?.info?.("[adminHero] PUT /admin/hero");
     const next = sanitizeHeroPayload(req.body);
     const saved = await writeHero(next);
     return res.json(saved);
   } catch (e: any) {
-    return res.status(500).json({ error: "failed_to_write_hero", details: String(e?.message || e) });
+    return res.status(500).json({
+      error: "failed_to_write_hero",
+      details: String(e?.message || e),
+    });
   }
 });
 
-/* ============================================
- * ADMIN: PATCH — częściowa aktualizacja (merge)
- * ============================================ */
-router.patch("/admin/hero", requireAdmin, async (req, res) => {
+adminHeroRouter.patch("/hero", requireAdmin, async (req: Request, res: Response) => {
   try {
+    (req as any).log?.info?.("[adminHero] PATCH /admin/hero");
     const current = (await readHero()) ?? DEFAULT_HERO;
     const patch = sanitizeHeroPayload({ ...current, ...req.body });
     const saved = await writeHero(patch);
     return res.json(saved);
   } catch (e: any) {
-    return res.status(500).json({ error: "failed_to_patch_hero", details: String(e?.message || e) });
+    return res.status(500).json({
+      error: "failed_to_patch_hero",
+      details: String(e?.message || e),
+    });
   }
 });
 
-/* ============================================
- * ADMIN: DELETE — usuń wpis (publiczny endpoint wróci do default)
- * ============================================ */
-router.delete("/admin/hero", requireAdmin, async (_req, res) => {
+adminHeroRouter.delete("/hero", requireAdmin, async (req: Request, res: Response) => {
   try {
+    (req as any).log?.info?.("[adminHero] DELETE /admin/hero");
     await prisma.siteSetting.delete({ where: { key: KEY } }).catch(() => {});
     return res.status(204).end();
   } catch (e: any) {
-    return res.status(500).json({ error: "failed_to_delete_hero", details: String(e?.message || e) });
+    return res.status(500).json({
+      error: "failed_to_delete_hero",
+      details: String(e?.message || e),
+    });
   }
 });
 
-/* ============================================
- * ADMIN: RESET — ustaw domyślne i zapisz
- * ============================================ */
-router.post("/admin/hero/reset", requireAdmin, async (_req, res) => {
+adminHeroRouter.post("/hero/reset", requireAdmin, async (req: Request, res: Response) => {
   try {
+    (req as any).log?.info?.("[adminHero] POST /admin/hero/reset");
     const saved = await writeHero(DEFAULT_HERO);
     return res.json(saved);
   } catch (e: any) {
-    return res.status(500).json({ error: "failed_to_reset_hero", details: String(e?.message || e) });
+    return res.status(500).json({
+      error: "failed_to_reset_hero",
+      details: String(e?.message || e),
+    });
   }
 });
 
 /* ============================================
- * PUBLIC: pokaż hero (default jeśli brak wpisu)
- * - jeśli enabled === false → 404 (ukryj sekcję)
+ * PUBLIC ROUTES → montowane pod /api/public
+ * finalna ścieżka:
+ *   GET /api/public/hero
  * ============================================ */
-router.get("/public/hero", async (_req, res) => {
+
+publicHeroRouter.get("/hero", async (req: Request, res: Response) => {
   try {
+    (req as any).log?.info?.("[adminHero] GET /public/hero");
     const existing = await readHero();
     const v = existing ?? DEFAULT_HERO;
-    if (v.enabled === false) return res.status(404).json({ message: "hero disabled" });
+    if (v.enabled === false) {
+      return res.status(404).json({ message: "hero disabled" });
+    }
     return res.json(v);
   } catch (e: any) {
-    return res.status(500).json({ error: "failed_to_read_public_hero", details: String(e?.message || e) });
+    return res.status(500).json({
+      error: "failed_to_read_public_hero",
+      details: String(e?.message || e),
+    });
   }
 });
 
-export default router;
+export { adminHeroRouter, publicHeroRouter };

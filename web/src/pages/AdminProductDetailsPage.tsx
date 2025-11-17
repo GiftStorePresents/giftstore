@@ -20,6 +20,11 @@ type Variant = {
   color?: string | null;
   size?: string | null;
   personalize?: boolean | null;
+
+  // ✅ NOWE: pola rabatu
+  discountActive?: boolean | null;
+  salePriceCents?: number | null;
+  showDiscountPercent?: boolean | null;
 };
 
 type Media = {
@@ -36,7 +41,7 @@ type AdminProduct = {
   brand?: string | null;
   description?: string | null;
 
-  // U niektórych endpointów masz „price” (zł) jako number — dlatego zostawiam:
+  // U niektórych endpointów masz „price” (zł) jako number — zostawiamy:
   price?: number | null;
 
   // Najczęściej jednak cena jest w wariantach:
@@ -85,19 +90,35 @@ function asPlDateTime(iso?: string) {
   return d.toLocaleString("pl-PL");
 }
 
+// ✅ helper: efektywna cena wariantu (z rabatem)
+function effectiveCents(v?: Variant | null): number | null {
+  if (!v) return null;
+  const hasSale = !!v.discountActive && typeof v.salePriceCents === "number";
+  if (hasSale) return v.salePriceCents as number;
+  return typeof v.priceCents === "number" ? (v.priceCents as number) : null;
+}
+
+// ✅ poprawione: używamy efektywnej ceny (rabat > zwykła)
 function computeMinPriceZl(product?: AdminProduct): string {
-  // 1) Jeśli backend już daje price (w zł) — pokaż:
-  if (typeof product?.price === "number" && Number.isFinite(product.price)) {
+  // 1) Jeśli backend daje price (w zł) i nie masz wariantów — pokaż:
+  if (
+    typeof product?.price === "number" &&
+    Number.isFinite(product.price) &&
+    (!product?.variants || product.variants.length === 0)
+  ) {
     return `${product.price.toFixed(2)} zł`;
   }
-  // 2) Jeśli mamy warianty -> policz minimum z priceCents
-  const cents = (product?.variants || [])
-    .map((v) => (typeof v?.priceCents === "number" ? v.priceCents : null))
+
+  // 2) Minimalna cena z wariantów — liczymy efektywną (sale jeśli aktywne)
+  const eff = (product?.variants || [])
+    .map((v) => effectiveCents(v))
     .filter((n): n is number => typeof n === "number");
-  if (cents.length) {
-    const min = Math.min(...cents);
+
+  if (eff.length) {
+    const min = Math.min(...eff);
     return `${(min / 100).toFixed(2)} zł`;
   }
+
   return "—";
 }
 
@@ -142,15 +163,18 @@ function useAdminApi() {
   const reassign = useCallback(async (categoryId: string, productIds: string[]) => {
     await ensureCsrf();
     const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
-    const r = await fetch(`${API_BASE}/api/admin/categories/${encodeURIComponent(categoryId)}/reassign`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrf,
-      },
-      body: JSON.stringify({ productIds }),
-    });
+    const r = await fetch(
+      `${API_BASE}/api/admin/categories/${encodeURIComponent(categoryId)}/reassign`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrf,
+        },
+        body: JSON.stringify({ productIds }),
+      }
+    );
     if (!r.ok) throw new Error(await readError(r));
     const data = await r.json().catch(() => ({}));
     return data;

@@ -1,5 +1,5 @@
 // src/pages/CartPage.jsx
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
@@ -12,6 +12,27 @@ const fmt = (n) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+/* --- obrazki: preferuj /og-image.jpg, potem wbudowany SVG --- */
+const SITE_ORIGIN =
+  (typeof window !== "undefined" && window.location.origin) || "http://localhost:3000";
+const BASE_URL =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SITE_URL) ||
+  (typeof process !== "undefined" &&
+    (process.env.REACT_APP_SITE_URL || process.env.PUBLIC_URL)) ||
+  SITE_ORIGIN;
+
+function resolveImg(src) {
+  if (!src) return "/og-image.jpg"; // domyślny fallback z public/
+  if (/^(https?:)?\/\//i.test(src) || src.startsWith("data:")) return src;
+  const base = String(BASE_URL || "").replace(/\/+$/, "");
+  const path = src.startsWith("/") ? src : `/${src}`;
+  return `${base}${path}`;
+}
+
+const FALLBACK_SRC = resolveImg("/og-image.jpg");
+const FALLBACK_IMG =
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="112" height="112" viewBox="0 0 112 112"><rect width="112" height="112" rx="12" fill="%23f1f5f9"/><path d="M20 74l16-16 12 12 20-20 24 24v12H20z" fill="%23cbd5e1"/><circle cx="38" cy="38" r="10" fill="%23e2e8f0"/></svg>';
 
 /** Dostępne opcje dostawy – spójne z CheckoutPage */
 const SHIPPING_OPTIONS = {
@@ -36,17 +57,28 @@ const SHIPPING_OPTIONS = {
   ],
 };
 
-/** Stonowany przycisk wyboru (mniej żółtego) */
 function pickBtn(selected) {
   const base =
     "rounded-xl px-4 py-2 font-bold border transition select-none focus:outline-none";
   const on =
-    "border-gold/70 ring-2 ring-gold/30 bg-mainRed/5 text-mainRed " +
-    "dark:text-gold dark:bg-white/5"; // delikatne wypełnienie + cienki ring
+    "border-gold/70 ring-2 ring-gold/30 bg-mainRed/5 text-mainRed dark:text-gold dark:bg-white/5";
   const off =
-    "border-black/10 dark:border-white/10 text-slate-700 dark:text-white " +
-    "hover:bg-black/5 dark:hover:bg-white/10";
+    "border-black/10 dark:border-white/10 text-slate-700 dark:text-white hover:bg-black/5 dark:hover:bg-white/10";
   return `${base} ${selected ? on : off}`;
+}
+
+/* mały helper do wiadomości o synchronizacji */
+function buildStockMsg(res) {
+  if (!res) return "";
+  const parts = [];
+  if (Array.isArray(res.removed) && res.removed.length) {
+    parts.push(`Usunięto z koszyka: ${res.removed.join(", ")}`);
+  }
+  if (Array.isArray(res.adjusted) && res.adjusted.length) {
+    const list = res.adjusted.map((a) => `${a.slug}: ${a.from}→${a.to}`).join(", ");
+    parts.push(`Dostosowano ilości (${list})`);
+  }
+  return parts.join(" • ") || "Zaktualizowano koszyk wg dostępności";
 }
 
 /* =============================== */
@@ -75,6 +107,9 @@ export default function CartPage() {
     setPrefShippingCarrier,
     prefPaymentMethod,
     setPrefPaymentMethod,
+
+    // NEW: helper do weryfikacji stanów koszyka
+    syncCartWithStock,
   } = useCart();
 
   const { user } = useAuth();
@@ -84,7 +119,21 @@ export default function CartPage() {
   const [applying, setApplying] = useState(false);
   const [couponMsg, setCouponMsg] = useState("");
   const [couponError, setCouponError] = useState("");
+
+  // NEW: komunikat po sync + flaga blokady przy przejściu do kasy
+  const [stockMsg, setStockMsg] = useState("");
+  const [syncing, setSyncing] = useState(false);
+
   const [pickupCode, setPickupCode] = useState(""); // kod punktu/automatu (opcjonalny preview)
+
+  // NEW: flaga aktywności strony koszyka (na wszelki wypadek, jeśli masz routing-guards)
+  const activeRef = useRef(true);
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
 
   /* ------- kwoty ------- */
   const afterDiscount = useMemo(
@@ -119,6 +168,56 @@ export default function CartPage() {
     [cart]
   );
 
+  // NEW: auto-weryfikacja po wejściu na CartPage
+  useEffect(() => {
+    (async () => {
+      if (!cart.length || typeof syncCartWithStock !== "function") return;
+      setSyncing(true);
+      const res = await syncCartWithStock();
+      setSyncing(false);
+      if (res?.changed) {
+        const msg = buildStockMsg(res);
+        setStockMsg(msg);
+        setTimeout(() => setStockMsg(""), 5000);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // tylko na mount
+
+  // NEW: autopolling co 20 s — tylko gdy strona jest aktywna i karta przeglądarki widoczna
+  useEffect(() => {
+    if (!cart.length || typeof syncCartWithStock !== "function") return;
+
+    let stop = false;
+    const visible = () => document.visibilityState === "visible";
+    const tick = async () => {
+      if (stop || !activeRef.current || !visible()) return;
+      const res = await syncCartWithStock();
+      if (res?.changed) {
+        const msg = buildStockMsg(res);
+        setStockMsg(msg);
+        setTimeout(() => setStockMsg(""), 5000);
+      }
+    };
+
+    // pierwszy „cichy” tick po 12 s, potem co 20 s
+    const first = setTimeout(tick, 12000);
+    const id = setInterval(tick, 20000);
+
+    // pauza/wznowienie na zmianę widoczności karty
+    const onVis = () => {
+      if (visible()) tick();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      stop = true;
+      clearTimeout(first);
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [cart.length, syncCartWithStock]);
+
   if (cart.length === 0)
     return (
       <div className="text-center mt-20">
@@ -149,9 +248,16 @@ export default function CartPage() {
           >
             <div className="flex items-start gap-3">
               <img
-                src={item.image}
+                src={item.image ? resolveImg(item.image) : FALLBACK_SRC}
                 alt={item.name}
                 className="w-16 h-16 rounded-xl object-cover shadow"
+                loading="lazy"
+                decoding="async"
+                onError={(e) => {
+                  // unikamy pętli i ikony błędu
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = FALLBACK_IMG;
+                }}
               />
               <div>
                 <div className="font-bold text-mainRed dark:text-gold">
@@ -435,7 +541,7 @@ export default function CartPage() {
         </div>
       </div>
 
-      {/* PŁATNOŚĆ – mniej żółtego */}
+      {/* PŁATNOŚĆ */}
       <div className="mt-6 rounded-xl border-2 border-black/5 dark:border-white/10 p-4 bg-white/70 dark:bg-[#0b1220]/80">
         <div className="font-bold text-mainRed dark:text-gold mb-3">
           Metoda płatności
@@ -476,9 +582,7 @@ export default function CartPage() {
 
         {Number(discount) > 0 && (
           <div className="flex justify-between mt-1 text-emerald-700 dark:text-emerald-400">
-            <span>
-              Rabat{appliedCoupon ? ` (${appliedCoupon})` : ""}
-            </span>
+            <span>Rabat{appliedCoupon ? ` (${appliedCoupon})` : ""}</span>
             <span>-{fmt(discount)} zł</span>
           </div>
         )}
@@ -496,6 +600,14 @@ export default function CartPage() {
             {fmt(afterDiscount + shippingPreview)} zł
           </span>
         </div>
+
+        {/* NEW: delikatny komunikat o korektach koszyka */}
+        {stockMsg && (
+          <div className="mt-3 text-sm text-amber-700 dark:text-amber-300">
+            {stockMsg}
+          </div>
+        )}
+
         <div className="text-xs text-gray-500 dark:text-white/60 mt-1">
           Finalna cena i adres będą potwierdzone w kolejnym kroku.
         </div>
@@ -521,10 +633,23 @@ export default function CartPage() {
           Wyczyść koszyk
         </button>
 
-        {/* Wyraźny, zawsze aktywny przycisk */}
+        {/* NEW: weryfikacja przed przejściem do kasy */}
         <button
-          className="bg-gold text-mainRed px-6 py-2 rounded-xl font-bold hover:bg-mainRed hover:text-gold transition"
-          onClick={() => {
+          disabled={syncing}
+          className="bg-gold text-mainRed px-6 py-2 rounded-xl font-bold hover:bg-mainRed hover:text-gold transition disabled:opacity-60"
+          onClick={async () => {
+            if (typeof syncCartWithStock === "function") {
+              setSyncing(true);
+              const res = await syncCartWithStock();
+              setSyncing(false);
+              if (res?.changed) {
+                setStockMsg(buildStockMsg(res));
+                setTimeout(() => setStockMsg(""), 5000);
+                // zatrzymujemy się na stronie koszyka — użytkownik akceptuje zmiany
+                return;
+              }
+            }
+            // jeśli bez zmian — przejście dalej
             if (user) {
               navigate("/checkout");
             } else if (showGuestOrder) {
@@ -533,8 +658,9 @@ export default function CartPage() {
               setShowGuestOrder(true);
             }
           }}
+          title={syncing ? "Sprawdzanie dostępności…" : "Przejdź do zamówienia"}
         >
-          Przejdź do zamówienia
+          {syncing ? "Sprawdzam…" : "Przejdź do zamówienia"}
         </button>
       </div>
 

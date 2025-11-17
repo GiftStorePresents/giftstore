@@ -139,15 +139,15 @@ model EmailVerificationCode {
  * =========================
  */
 model Category {
-  id           String   @id @default(cuid())
-  slug         String   @unique
-  name         String
+  id   String @id @default(cuid())
+  slug String @unique
+  name String
 
   // miniatura/baner kategorii (opcjonalnie)
   imageUrl     String?
-  showInHeader Boolean  @default(true)
-  showInTiles  Boolean  @default(true)
-  showInHero   Boolean  @default(false)
+  showInHeader Boolean @default(true)
+  showInTiles  Boolean @default(true)
+  showInHero   Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -159,6 +159,29 @@ model Category {
   @@index([showInTiles])
   @@index([showInHero])
   @@map("categories")
+}
+
+/**
+ * =========================
+ * INSPIRACJE
+ * =========================
+ */
+model Inspiration {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  description String?
+  imageUrl    String?
+  active      Boolean   @default(true)
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // relacja M:N z Product
+  products    Product[] @relation("InspirationProducts")
+
+  @@index([slug])
+  @@map("inspirations")
 }
 
 /**
@@ -176,13 +199,16 @@ model Product {
   updatedAt   DateTime @updatedAt
 
   // SOFT DELETE
-  deletedAt   DateTime?
+  deletedAt DateTime?
 
-  featured    Boolean  @default(false)
+  featured Boolean @default(false)
 
   // ── Relacja do kategorii ──
   categoryId String?
   category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // ── Relacja M:N do inspiracji ──
+  inspirations Inspiration[] @relation("InspirationProducts")
 
   media         Media[]
   variants      Variant[]
@@ -204,14 +230,22 @@ model Variant {
   priceCents  Int
   stock       Int     @default(0)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  // ⬇️ RABAT / PROMOCJA
+  discountActive      Boolean  @default(false) // czy aktywna promocja
+  salePriceCents      Int?                     // nowa (obniżona) cena w groszach
+  showDiscountPercent Boolean  @default(true)  // czy pokazywać % rabatu na kartach
+  discountUntil       DateTime?                // ⬅️ NOWE: koniec promocji (ISO); alias: discountEndAt
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   cartItems    CartItem[]
   priceHistory VariantPriceHistory[]
 
   @@unique([productId, sku], map: "variant_productId_sku_unique")
   @@index([productId])
+  @@index([discountActive])
+  @@index([discountUntil]) // ułatwia filtrowanie po dacie końca promocji
   @@map("variants")
 }
 
@@ -361,6 +395,9 @@ model Order {
 
   // zwrotna relacja do CouponRedemption (spójna nazwana relacja)
   couponRedemptions CouponRedemption[] @relation("OrderCouponRedemptions")
+
+  // ⬇⬇⬇ DODANE: pole zwrotne relacji 1:1 do ReviewInvite
+  reviewInvite ReviewInvite?
 
   @@index([userId])
   @@index([createdAt])
@@ -602,6 +639,26 @@ model SiteSetting {
   updatedAt DateTime @updatedAt
 
   @@map("site_settings")
+}
+
+/**
+ * =========================
+ * REVIEW INVITES (token do opinii)
+ * =========================
+ */
+model ReviewInvite {
+  id        String    @id @default(cuid())
+  orderId   String    @unique
+  email     String
+  token     String    @db.VarChar(128)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@map("review_invites")
 }
 
 /**

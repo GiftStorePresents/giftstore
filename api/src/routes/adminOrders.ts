@@ -1,5 +1,6 @@
 // src/routes/adminOrders.ts
 import { Router, type Request, type Response, type NextFunction } from "express";
+import crypto from "crypto";
 import { prisma } from "../lib/prisma";
 import { ok, fail } from "../lib/http";
 import { issueInvoiceAndNotify } from "../services/invoicing";
@@ -251,6 +252,59 @@ router.patch("/:idOrNumber/status", requireAdmin, async (req: Request, res: Resp
       invoiceNumber: updated.invoiceNumber,
     },
   });
+});
+
+/**
+ * POST /api/admin/orders/:id/review-invite
+ * Wysyła do klienta e-mail z prośbą o opinię + zapisuje/odświeża token.
+ * Front (AdminOrderDetailsPage) uderza tutaj.
+ */
+router.post("/orders/:id/review-invite", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const orderId = String(req.params.id || "").trim();
+    if (!orderId) return fail(res, 400, "order id is required");
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { user: true },
+    });
+    if (!order || !order.user?.email) {
+      return fail(res, 400, "Brak zamówienia lub e-maila klienta.");
+    }
+
+    // 1) token do oceny (odświeżany przy każdym wysłaniu)
+    const token = crypto.randomBytes(24).toString("hex");
+
+    // 2) zapisz/odśwież zaproszenie (wymaga modelu ReviewInvite w Prisma)
+    await prisma.reviewInvite.upsert({
+      where: { orderId: order.id },
+      create: { orderId: order.id, email: order.user.email, token },
+      update: { token, email: order.user.email, usedAt: null },
+    });
+
+    // 3) konfiguracja brandu/linku
+    const brandUrl = process.env.BRAND_URL || process.env.SITE_URL || "http://localhost:3000";
+    const brand = process.env.BRAND_NAME || "Gift Store";
+    const logoUrl = process.env.BRAND_LOGO_URL; // opcjonalnie
+
+    // 4) zbuduj i wyślij maila
+    const subject = subjects.reviewInvite({ name: order.user.name });
+    const html = templates.reviewInvite({
+      name: order.user.name,
+      orderId: order.id,
+      token,
+      brandUrl,
+      logoUrl,
+      brand,
+    });
+
+    await sendMail(order.user.email, subject, html);
+
+    return ok(res, { invited: true, when: new Date().toISOString() });
+  } catch (e: any) {
+    console.error("[adminOrders] review-invite error:", e?.message || e);
+    return fail(res, 500, "Nie udało się wysłać zaproszenia.");
+  }
 });
 
 export default router;

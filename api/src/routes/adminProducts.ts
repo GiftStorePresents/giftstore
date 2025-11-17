@@ -9,6 +9,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/requireAuth";
 import { requireRole } from "../middleware/roles";
 import { logAdminAction } from "../lib/adminLog";
+import { Prisma } from "@prisma/client";
 
 export const adminProducts: RouterType = Router();
 
@@ -41,6 +42,48 @@ async function ensureCategoryBySlug(slug: string) {
 }
 
 /* ================================================================================================
+   BASIC LIST (dla pickera w inspiracjach)
+   GET /api/admin/products/basic?skip=&take=&q=
+   => { items: [{id,slug,name}], total, skip, take }
+================================================================================================ */
+adminProducts.get(
+  "/products/basic",
+  requireAuth,
+  requireRole("ADMIN"),
+  async (req: Request, res: Response) => {
+    try {
+      const skip = Math.max(0, Number(req.query.skip ?? 0) || 0);
+      const take = Math.min(100, Math.max(1, Number(req.query.take ?? 25) || 25));
+      const q = String(req.query.q ?? "").trim();
+
+      const where: Prisma.ProductWhereInput = { deletedAt: { equals: null } };
+      if (q) {
+        where.OR = [
+          { name: { contains: q, mode: Prisma.QueryMode.insensitive } },
+          { slug: { contains: q, mode: Prisma.QueryMode.insensitive } },
+        ];
+      }
+
+      const [items, total] = await Promise.all([
+        prisma.product.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip,
+          take,
+          select: { id: true, slug: true, name: true },
+        }),
+        prisma.product.count({ where }),
+      ]);
+
+      return res.json({ items, total, skip, take });
+    } catch (err: any) {
+      console.error("[GET /api/admin/products/basic] error:", err);
+      return res.status(500).json({ error: err?.message || "Internal error" });
+    }
+  }
+);
+
+/* ================================================================================================
    LIST: GET /api/admin/products?query=&q=&page=&limit=&withDeleted=false
 ================================================================================================ */
 adminProducts.get(
@@ -56,14 +99,16 @@ adminProducts.get(
     const limit = Math.max(1, Math.min(100, parseInt((req.query.limit as string) || "20", 10)));
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const where: Prisma.ProductWhereInput = {};
     if (query) {
       where.OR = [
-        { name: { contains: query, mode: "insensitive" } },
-        { slug: { contains: query, mode: "insensitive" } },
+        { name: { contains: query, mode: Prisma.QueryMode.insensitive } },
+        { slug: { contains: query, mode: Prisma.QueryMode.insensitive } },
       ];
     }
-    if (!withDeleted) where.deletedAt = null;
+    if (!withDeleted) {
+      where.deletedAt = { equals: null };
+    }
 
     const [items, total] = await Promise.all([
       prisma.product.findMany({
@@ -79,7 +124,7 @@ adminProducts.get(
           createdAt: true,
           updatedAt: true,
           featured: true,
-          category: { select: { id: true, name: true, slug: true} },
+          category: { select: { id: true, name: true, slug: true } },
           variants: {
             select: {
               id: true,
@@ -89,8 +134,13 @@ adminProducts.get(
               color: true,
               size: true,
               personalize: true,
+              // ⬇️ rabat — koniecznie zwracamy
+              discountActive: true,
+              salePriceCents: true,
+              showDiscountPercent: true,
+              discountUntil: true, // ⬅️ NOWE: data końca promocji
             },
-            orderBy: { priceCents: "asc" }, // szybki minPrice na froncie
+            orderBy: { priceCents: "asc" },
           },
           media: {
             select: { id: true, url: true, kind: true, position: true },
@@ -117,7 +167,6 @@ adminProducts.delete(
   requireAuth,
   requireRole("ADMIN"),
   async (req: Request, res: Response) => {
-    // Przekierowujemy w to samo wykonanie co endpoint niżej
     (req as any).body = { all: true };
     return bulkDeleteImpl(req, res);
   }
@@ -144,7 +193,6 @@ async function bulkDeleteImpl(req: Request, res: Response) {
   if (hard) {
     const where = body.all ? {} : { id: { in: body.ids! } };
     const result = await prisma.$transaction(async (tx) => {
-      // usuń media i warianty skojarzone
       const productIds =
         body.all
           ? (await tx.product.findMany({ select: { id: true } })).map((p) => p.id)
@@ -167,7 +215,9 @@ async function bulkDeleteImpl(req: Request, res: Response) {
 
     return res.json({ ok: true, deleted: result });
   } else {
-    const where = body.all ? { deletedAt: null } : { id: { in: body.ids! }, deletedAt: null };
+    const where = body.all
+      ? { deletedAt: { equals: null } }
+      : { id: { in: body.ids! }, deletedAt: { equals: null } };
     const updated = await prisma.product.updateMany({ where, data: { deletedAt: now() } });
 
     await logAdminAction({
@@ -195,10 +245,39 @@ adminProducts.get(
 
     const product = await prisma.product.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        description: true,
+        brand: true,
+        featured: true,
+        createdAt: true,
+        updatedAt: true,
         category: { select: { id: true, name: true, slug: true } },
-        variants: true, // w schema masz createdAt/updatedAt, ale tu nie jest wymagane sortowanie
-        media: { orderBy: { position: "asc" } },
+        media: {
+          select: { id: true, url: true, kind: true, position: true },
+          orderBy: { position: "asc" },
+        },
+        variants: {
+          select: {
+            id: true,
+            sku: true,
+            color: true,
+            size: true,
+            personalize: true,
+            priceCents: true,
+            stock: true,
+            // ⬇️ rabat — MUSI wrócić do modalu
+            discountActive: true,
+            salePriceCents: true,
+            showDiscountPercent: true,
+            discountUntil: true, // ⬅️ NOWE
+            createdAt: true,
+            updatedAt: true,
+          },
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
     if (!product) return res.status(404).json({ error: "Product not found" });
@@ -236,6 +315,10 @@ adminProducts.post(
       }
     }
 
+    // alias discountEndAt też obsługiwany
+    const variantDiscountUntilRaw =
+      b.variant.discountUntil ?? b.variant.discountEndAt ?? null;
+
     const created = await prisma.product.create({
       data: {
         name: String(b.name).trim(),
@@ -252,13 +335,46 @@ adminProducts.post(
             color: b.variant.color ? String(b.variant.color) : null,
             size: b.variant.size ? String(b.variant.size) : null,
             personalize: !!b.variant.personalize,
+            // ⬇️ pola rabatu
+            discountActive: !!b.variant.discountActive,
+            salePriceCents:
+              typeof b.variant.salePriceCents === "number"
+                ? Math.max(0, Math.floor(b.variant.salePriceCents))
+                : null,
+            showDiscountPercent:
+              b.variant.showDiscountPercent === undefined ? true : !!b.variant.showDiscountPercent,
+            discountUntil:
+              variantDiscountUntilRaw && typeof variantDiscountUntilRaw === "string"
+                ? new Date(variantDiscountUntilRaw)
+                : null,
           },
         },
       },
-      include: {
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        description: true,
+        brand: true,
+        featured: true,
         category: { select: { id: true, name: true, slug: true } },
-        variants: true,
-        media: true,
+        media: { select: { id: true, url: true, kind: true, position: true } },
+        variants: {
+          select: {
+            id: true,
+            sku: true,
+            color: true,
+            size: true,
+            personalize: true,
+            priceCents: true,
+            stock: true,
+            discountActive: true,
+            salePriceCents: true,
+            showDiscountPercent: true,
+            discountUntil: true,
+          },
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
 
@@ -275,9 +391,7 @@ adminProducts.post(
 );
 
 /* ================================================================================================
-   UPDATE: PUT /api/admin/products/:id  (mirror jako PATCH poniżej)
-   - wspiera: name, slug (z walidacją unikalności), description, brand, featured, undelete
-   - category: <slug> (connect), "" (disconnect)
+   UPDATE: PUT/PATCH /api/admin/products/:id
 ================================================================================================ */
 async function updateProductImpl(req: Request, res: Response) {
   const id = String(req.params.id || "");
@@ -319,12 +433,36 @@ async function updateProductImpl(req: Request, res: Response) {
   }
 
   await prisma.product.update({ where: { id }, data });
+
   const after = await prisma.product.findUnique({
     where: { id },
-    include: {
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      description: true,
+      brand: true,
+      featured: true,
+      createdAt: true,
+      updatedAt: true,
       category: { select: { id: true, name: true, slug: true } },
-      variants: true,
-      media: true,
+      media: { select: { id: true, url: true, kind: true, position: true } },
+      variants: {
+        select: {
+          id: true,
+          sku: true,
+          color: true,
+          size: true,
+          personalize: true,
+          priceCents: true,
+          stock: true,
+          discountActive: true,
+          salePriceCents: true,
+          showDiscountPercent: true,
+          discountUntil: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 
@@ -340,20 +478,8 @@ async function updateProductImpl(req: Request, res: Response) {
   res.json({ ok: true, product: after });
 }
 
-adminProducts.put(
-  "/products/:id",
-  requireAuth,
-  requireRole("ADMIN"),
-  updateProductImpl
-);
-
-// Mirror PATCH (frontend czasem woła PATCH)
-adminProducts.patch(
-  "/products/:id",
-  requireAuth,
-  requireRole("ADMIN"),
-  updateProductImpl
-);
+adminProducts.put("/products/:id", requireAuth, requireRole("ADMIN"), updateProductImpl);
+adminProducts.patch("/products/:id", requireAuth, requireRole("ADMIN"), updateProductImpl);
 
 /* ================================================================================================
    DELETE (soft/hard): /api/admin/products/:id[?hard=1]
@@ -459,6 +585,7 @@ adminProducts.put(
 
 /* ================================================================================================
    VARIANT UPDATE (pełny): PATCH /api/admin/variants/:variantId
+   + pola rabatu: discountActive, salePriceCents, showDiscountPercent, discountUntil
 ================================================================================================ */
 adminProducts.patch(
   "/variants/:variantId",
@@ -476,15 +603,48 @@ adminProducts.patch(
         color?: string | undefined;
         size?: string | undefined;
         personalize?: boolean;
+
+        discountActive?: boolean;
+        salePriceCents?: number | null;
+        showDiscountPercent?: boolean;
+        discountUntil?: string | null;
+        discountEndAt?: string | null;
       };
 
       const data: any = {};
       if (Number.isFinite(body.priceCents)) data.priceCents = Number(body.priceCents);
       if (Number.isFinite(body.stock)) data.stock = Math.max(0, Number(body.stock) || 0);
       if (typeof body.sku === "string" || body.sku === null) data.sku = body.sku ?? null;
-      if (typeof body.color === "string" || body.color === undefined) data.color = body.color ?? null;
-      if (typeof body.size === "string" || body.size === undefined) data.size = body.size ?? null;
+      if (typeof body.color === "string" || body.color === undefined)
+        data.color = body.color ?? null;
+      if (typeof body.size === "string" || body.size === undefined)
+        data.size = body.size ?? null;
       if (typeof body.personalize === "boolean") data.personalize = !!body.personalize;
+
+      if (typeof body.discountActive === "boolean") data.discountActive = body.discountActive;
+
+      if (body.salePriceCents === null) {
+        data.salePriceCents = null;
+      } else if (typeof body.salePriceCents === "number") {
+        data.salePriceCents = Math.max(0, Math.floor(body.salePriceCents));
+      }
+
+      if (typeof body.showDiscountPercent === "boolean") {
+        data.showDiscountPercent = body.showDiscountPercent;
+      }
+
+      // --- NEW: discountUntil / discountEndAt (alias) ---
+      const untilRaw =
+        (body as any).discountUntil !== undefined
+          ? (body as any).discountUntil
+          : (body as any).discountEndAt;
+
+      if (untilRaw === null) {
+        data.discountUntil = null;
+      } else if (typeof untilRaw === "string") {
+        const trimmed = untilRaw.trim();
+        data.discountUntil = trimmed ? new Date(trimmed) : null;
+      }
 
       const current = await prisma.variant.findUnique({ where: { id } });
       if (!current) return res.status(404).json({ error: "Variant not found" });
@@ -507,7 +667,13 @@ adminProducts.patch(
           entityType: "Variant",
           entityId: id,
           before: { priceCents: current.priceCents },
-          after: { priceCents: data.priceCents },
+          after: {
+            priceCents: data.priceCents,
+            discountActive: updated.discountActive,
+            salePriceCents: updated.salePriceCents,
+            showDiscountPercent: updated.showDiscountPercent,
+            discountUntil: updated.discountUntil,
+          },
         });
       } else {
         await logAdminAction({

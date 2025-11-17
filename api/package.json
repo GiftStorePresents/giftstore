@@ -28,6 +28,7 @@
   "dependencies": {
     "@prisma/client": "^6.16.2",
     "bcrypt": "^6.0.0",
+    "coinbase-commerce-node": "^1.0.4",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
@@ -60,7 +61,7 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/multer": "^2.0.0",
-    "@types/node": "^20.14.10",
+    "@types/node": "^20.19.11",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^7.0.0",
     "@types/passport": "^1.0.17",

@@ -1,21 +1,23 @@
 // src/pages/SearchResults.jsx
 import { useMemo, useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { searchAll } from "../utils/searchUtils";
+// SearchResults.jsx
+import { searchAll, getSearchVersion } from "../utils/searchUtils";
 import FiltersDrawer from "../components/FiltersDrawer";
 import SeoHead from "../components/SeoHead";
 import LoadMoreGrid from "../components/LoadMoreGrid";
 import { env } from "../env";
 import { gaEvent, mapProductsToGAItems } from "../utils/ga";
 
-function useQuery() {
+function useQueryParam() {
   const { search } = useLocation();
   return useMemo(() => new URLSearchParams(search), [search]);
 }
 
 export default function SearchResults({ setToast }) {
   const location = useLocation();
-  const query = useQuery().get("q") || "";
+  const params = useQueryParam();
+  const query = params.get("q") || "";
 
   const [filters, setFilters] = useState({
     minPrice: "",
@@ -24,10 +26,18 @@ export default function SearchResults({ setToast }) {
     sort: "relevance",
   });
 
-  // Wyniki (lokalny search nad zainicjalizowanym datasetem)
-  const allResults = searchAll(query);
+  // 🔄 wersja datasetu – rośnie przy updateSearchDataset(...)
+  const [ver, setVer] = useState(() => getSearchVersion());
+  useEffect(() => {
+    const onUpdate = () => setVer(getSearchVersion());
+    window.addEventListener("search:dataset", onUpdate);
+    return () => window.removeEventListener("search:dataset", onUpdate);
+  }, []);
 
-  // GA4: view_search_results – na zmianę zapytania
+  // 🔎 pełne, lokalne wyniki (Fuse działa w utils/searchUtils)
+  const allResults = useMemo(() => searchAll(query), [query, ver]);
+
+  // GA4: view_search_results – gdy zmienia się zapytanie
   useEffect(() => {
     if (!query) return;
     gaEvent("view_search_results", {
@@ -35,9 +45,9 @@ export default function SearchResults({ setToast }) {
       items: mapProductsToGAItems(allResults).slice(0, 24),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, ver]);
 
-  // GA4: view_item_list – lista wyników wyszukiwania
+  // GA4: view_item_list – gdy zmienia się lista wyników
   useEffect(() => {
     if (!allResults?.length) return;
     const q = new URLSearchParams(location.search).get("q") || "";
@@ -47,9 +57,9 @@ export default function SearchResults({ setToast }) {
       items: mapProductsToGAItems(allResults),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allResults?.length]);
+  }, [allResults, location.search]);
 
-  // Canonical
+  // Canonical (SITE_URL z env albo z window)
   const SITE_URL = useMemo(() => {
     const fromEnv = (env?.SITE_URL || "").replace(/\/+$/, "");
     if (fromEnv) return fromEnv;
@@ -59,12 +69,18 @@ export default function SearchResults({ setToast }) {
   const canonical = `${SITE_URL}/search?q=${encodeURIComponent(query)}`;
 
   // Filtrowanie
-  const filteredResults = allResults.filter((p) => {
-    if (filters.minPrice !== "" && Number(p.price) < Number(filters.minPrice)) return false;
-    if (filters.maxPrice !== "" && Number(p.price) > Number(filters.maxPrice)) return false;
-    if (filters.rating !== "" && Number(p.rating) < Number(filters.rating)) return false;
-    return true;
-  });
+  const filteredResults = useMemo(() => {
+    return allResults.filter((p) => {
+      const priceNum = Number(p.price);
+      const ratingNum = Number(p.rating);
+
+      if (filters.minPrice !== "" && priceNum < Number(filters.minPrice)) return false;
+      if (filters.maxPrice !== "" && priceNum > Number(filters.maxPrice)) return false;
+      if (filters.rating !== "" && ratingNum < Number(filters.rating)) return false;
+
+      return true;
+    });
+  }, [allResults, filters.minPrice, filters.maxPrice, filters.rating]);
 
   // Sortowanie
   const sortedResults = useMemo(() => {
@@ -81,9 +97,23 @@ export default function SearchResults({ setToast }) {
       case "nameDesc":
         return arr.sort((a, b) => String(b.name).localeCompare(String(a.name)));
       default:
-        return arr; // relevance / domyślna kolejność
+        return arr; // relevance / domyślna kolejność (Fuse już posortował)
     }
   }, [filteredResults, filters.sort]);
+
+  // ✅ Fallback obrazka dla wyników bez image/media
+  const resultsWithFallbackImage = useMemo(() => {
+    const FALLBACK = "/og-image.jpg"; // z public/
+    return sortedResults.map((p) => {
+      const hasImg = !!(p?.media?.[0]?.url || p?.image);
+      if (hasImg) return p;
+      return {
+        ...p,
+        image: FALLBACK,
+        media: [{ url: FALLBACK }],
+      };
+    });
+  }, [sortedResults]);
 
   return (
     <section className="my-8 max-w-7xl mx-auto px-4">
@@ -111,10 +141,10 @@ export default function SearchResults({ setToast }) {
 
       {!query ? (
         <div className="text-gray-500">Wpisz szukaną frazę w polu wyszukiwania.</div>
-      ) : sortedResults.length === 0 ? (
+      ) : resultsWithFallbackImage.length === 0 ? (
         <div className="text-gray-500">Brak wyników. Spróbuj innego hasła.</div>
       ) : (
-        <LoadMoreGrid products={sortedResults} setToast={setToast} />
+        <LoadMoreGrid products={resultsWithFallbackImage} setToast={setToast} />
       )}
     </section>
   );

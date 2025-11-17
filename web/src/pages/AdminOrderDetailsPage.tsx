@@ -79,6 +79,29 @@ function getCookie(name: string) {
   );
 }
 
+/* ========= NOWE: API do wysyłki zaproszenia z opinią ========= */
+async function sendReviewInvite(orderId: string) {
+  const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
+  const res = await fetch(
+    `${API_BASE}/api/admin/orders/${encodeURIComponent(orderId)}/review-invite`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+      },
+      body: JSON.stringify({}), // backend generuje/odświeża token i wysyła mail
+    }
+  );
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(txt || `HTTP ${res.status}`);
+  }
+  return (await res.json().catch(() => ({}))) as { invited?: boolean; when?: string };
+}
+/* ============================================================ */
+
 export default function AdminOrderDetailsPage() {
   const params = useParams<{ id?: string; orderId?: string }>();
   const orderParam = (params.id || params.orderId || "").trim();
@@ -87,6 +110,32 @@ export default function AdminOrderDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /* ========= NOWE: stan i handler do zaproszenia opinii ========= */
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteInfo, setInviteInfo] = useState<string | null>(null);
+
+  async function handleInvite() {
+    if (!order) return;
+    if (!order.user?.email) {
+      alert("Brak adresu e-mail klienta — nie można wysłać zaproszenia.");
+      return;
+    }
+    if (!confirm(`Wysłać prośbę o opinię do: ${order.user.email}?`)) return;
+
+    setInviteBusy(true);
+    try {
+      const resp = await sendReviewInvite(order.id);
+      setInviteInfo(
+        resp?.when ? `Wysłano (${new Date(resp.when).toLocaleString()})` : "Wysłano."
+      );
+    } catch (e: any) {
+      alert(e?.message || "Nie udało się wysłać zaproszenia.");
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+  /* ============================================================= */
 
   const money = (cents?: number | null) =>
     typeof cents === "number" ? (cents / 100).toFixed(2) + " zł" : "—";
@@ -201,6 +250,20 @@ export default function AdminOrderDetailsPage() {
           >
             {STATUS_OPTIONS.find((s) => s.code === order.status)?.label || order.status}
           </span>
+
+          {/* NOWE — Wyślij prośbę o opinię */}
+          <button
+            className="admin-btn px-2 py-1"
+            onClick={handleInvite}
+            disabled={inviteBusy}
+            title={order.user?.email ? `Wyślij do ${order.user.email}` : "Brak e-maila"}
+          >
+            {inviteBusy ? "Wysyłanie..." : "Wyślij prośbę o opinię"}
+          </button>
+          {inviteInfo ? (
+            <span className="text-sm text-[var(--adm-muted)]">{inviteInfo}</span>
+          ) : null}
+
           <a
             className="admin-btn px-2 py-1"
             href={`${API_BASE}/api/admin/orders/export.csv`}

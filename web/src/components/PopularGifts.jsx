@@ -29,18 +29,43 @@ function absImageUrl(url) {
   return url.startsWith("http") ? url : `${API_BASE}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
+function clampRating(r) {
+  const n = Number(r);
+  // jeśli brak/0/NaN → 5; w przeciwnym razie ścinamy do 5
+  return !Number.isFinite(n) || n <= 0 ? 5 : Math.min(5, n);
+}
+
 function mapApiProduct(p) {
   const firstVariant = Array.isArray(p?.variants) && p.variants.length ? p.variants[0] : null;
 
+  // cena: preferuj wariant w groszach, potem product.priceCents, a na końcu product.price (zł)
   const priceCents =
     typeof firstVariant?.priceCents === "number"
       ? firstVariant.priceCents
       : (typeof p?.priceCents === "number" ? p.priceCents : null);
 
+  const price =
+    typeof priceCents === "number"
+      ? Math.max(0, Math.round(priceCents) / 100)
+      : (typeof p?.price === "number" ? p.price : 0);
+
   const rawImg =
     (Array.isArray(p?.media) && p.media.length && p.media[0]?.url) ||
     p?.image ||
+    p?.imageUrl ||
     null;
+
+  // ⭐⭐⭐ TU BYŁ PROBLEM: fallback 4 → zamieniamy na 5 + aliasy i clamp
+  const providedRating = p?.rating ?? p?.ratingAvg ?? p?.reviewsAvg;
+  const rating = clampRating(providedRating);
+
+  // liczba opinii (aliasy, żeby ProductCard miał oba)
+  const reviews =
+    Number(p?.reviewCount ?? p?.reviewsCount ?? 0) || 0;
+
+  // bestseller / promo flagi — szersze odczyty
+  const bestseller =
+    !!(p?.bestseller || p?.featured || (Array.isArray(p?.tags) && p.tags.map(String.toLowerCase).includes("bestseller")));
 
   const img = absImageUrl(rawImg);
 
@@ -49,14 +74,16 @@ function mapApiProduct(p) {
     slug: p.slug,
     name: p.name,
     description: p.description ?? "",
-    price: typeof priceCents === "number" ? Math.max(0, Math.round(priceCents) / 100) : (p.price ?? 0),
+    price,
     oldPrice: p.oldPrice ?? null,
-    rating: typeof p.rating === "number" ? p.rating : 4,
-    bestseller: !!p.featured,
+    rating,                             // ← już znormalizowane 0..5 z domyślnym 5
+    reviewCount: reviews,
+    reviewsCount: reviews,
+    bestseller,
     promo: !!p.promo,
-    stock: firstVariant?.stock ?? p.stock ?? undefined,
+    stock: firstVariant?.stock ?? p?.stock ?? undefined,
     image: img,
-    media: p.media ?? [],
+    media: Array.isArray(p?.media) ? p.media : [],
   };
 }
 

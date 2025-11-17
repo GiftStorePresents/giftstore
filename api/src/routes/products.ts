@@ -147,10 +147,12 @@ products.get("/popular", async (req: Request, res: Response) => {
 
 /**
  * PUBLIC — lista produktów (filtry)
+ * ⬅️ ZMIANA: obsługa ?slug=... jako DOKŁADNEGO filtra (bez OR po q)
  */
 products.get("/", async (req: Request, res: Response) => {
   try {
     const q = (req.query.q as string | undefined)?.trim() || "";
+    const slug = (req.query.slug as string | undefined)?.trim() || ""; // ⬅️ NOWE
     const category = (req.query.category as string | undefined)?.trim() || "";
 
     const limitParam =
@@ -168,7 +170,11 @@ products.get("/", async (req: Request, res: Response) => {
     if (!withDeleted) where.deletedAt = null;
     if (featured) where.featured = true;
 
-    if (q) {
+    // ⬇️ KLUCZOWE: jeśli mamy slug → filtrujemy DOKŁADNIE po slugu
+    if (slug) {
+      where.slug = slug;
+    } else if (q) {
+      // gdy NIE ma slug, stosujemy full-text po nazwie/opisie/slug
       where.OR = [
         { name: { contains: q, mode: "insensitive" } },
         { description: { contains: q, mode: "insensitive" } },
@@ -205,6 +211,45 @@ products.get("/", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("GET /products error", err);
     res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+/**
+ * === PUBLIC — dostępność po slugach ==================================
+ * GET /api/products/availability?slugs=a,b,c
+ * Zwraca: [{ slug, stock }] gdzie stock to suma stocków wariantów.
+ */
+products.get("/availability", async (req: Request, res: Response) => {
+  try {
+    const raw = String(req.query.slugs || "").trim();
+    if (!raw) return res.json([]);
+
+    const slugs = Array.from(
+      new Set(
+        raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      )
+    );
+    if (!slugs.length) return res.json([]);
+
+    // Stock na wariantach — sumujemy
+    const rows = await prisma.product.findMany({
+      where: { slug: { in: slugs }, deletedAt: null },
+      select: { slug: true, variants: { select: { stock: true } } },
+    });
+
+    const out = rows.map((r) => ({
+      slug: r.slug,
+      stock: (r.variants || []).reduce((s, v) => s + Math.max(0, v.stock || 0), 0),
+    }));
+
+    res.setHeader("Cache-Control", "private, max-age=5");
+    return res.json(out);
+  } catch (_e) {
+    // UX-first: nie wywalaj 500 – pusta lista = "brak zmian" po stronie frontu
+    return res.json([]);
   }
 });
 
@@ -260,11 +305,11 @@ products.get("/:slug", async (req: Request, res: Response) => {
 
 // ======================================================================
 // ==============================  ADMIN  ===============================
-// Prefiks w server.ts: app.use("/api", products)
-// → ścieżki /admin/... będą dostępne jako /api/admin/...
+// Prefiks w server.ts: app.use("/api/products", products)
+// → ścieżki /admin/... będą dostępne jako /api/products/admin/...
 // ======================================================================
 
-/** ADMIN — GET /api/admin/products (lista z filtrami) */
+/** ADMIN — GET /api/products/admin/products (lista z filtrami) */
 products.get("/admin/products", async (req: Request, res: Response) => {
   try {
     const q = (req.query.q as string | undefined)?.trim() || "";
@@ -327,7 +372,7 @@ products.get("/admin/products", async (req: Request, res: Response) => {
   }
 });
 
-/** ADMIN — GET /api/admin/products/:id */
+/** ADMIN — GET /api/products/admin/products/:id */
 products.get("/admin/products/:id", async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
@@ -347,7 +392,7 @@ products.get("/admin/products/:id", async (req: Request, res: Response) => {
   }
 });
 
-/** ADMIN — POST /api/admin/products (tworzenie z 1 wariantem) */
+/** ADMIN — POST /api/products/admin/products (tworzenie z 1 wariantem) */
 products.post("/admin/products", async (req: Request, res: Response) => {
   try {
     const {
@@ -406,7 +451,7 @@ products.post("/admin/products", async (req: Request, res: Response) => {
   }
 });
 
-/** ADMIN — PATCH /api/admin/products/:id (edycja) */
+/** ADMIN — PATCH /api/products/admin/products/:id (edycja) */
 products.patch("/admin/products/:id", async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
@@ -456,7 +501,7 @@ products.patch("/admin/products/:id", async (req: Request, res: Response) => {
   }
 });
 
-/** ADMIN — DELETE /api/admin/products/:id?hard=1 (soft/hard) */
+/** ADMIN — DELETE /api/products/admin/products/:id?hard=1 (soft/hard) */
 products.delete("/admin/products/:id", async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
@@ -480,7 +525,7 @@ products.delete("/admin/products/:id", async (req: Request, res: Response) => {
   }
 });
 
-/** ADMIN — DELETE /api/admin/products (bulk soft/hard) */
+/** ADMIN — DELETE /api/products/admin/products (bulk soft/hard) */
 products.delete("/admin/products", async (req: Request, res: Response) => {
   try {
     const { ids, all, force } = req.body || {};
@@ -522,7 +567,7 @@ products.delete("/admin/products", async (req: Request, res: Response) => {
   }
 });
 
-/** ADMIN — POST /api/admin/products/:id/upload-image (file|image) */
+/** ADMIN — POST /api/products/admin/products/:id/upload-image (file|image) */
 products.post(
   "/admin/products/:id/upload-image",
   upload.single("file"),
@@ -558,7 +603,7 @@ products.post(
   }
 );
 
-/** ADMIN — ALIAS: POST /api/admin/products/:id/images */
+/** ADMIN — ALIAS: POST /api/products/admin/products/:id/images */
 products.post(
   "/admin/products/:id/images",
   upload.single("file"),
@@ -570,7 +615,7 @@ products.post(
   }
 );
 
-/** ADMIN — DELETE /api/admin/media/:mediaId */
+/** ADMIN — DELETE /api/products/admin/media/:mediaId */
 products.delete("/admin/media/:mediaId", async (req: Request, res: Response) => {
   try {
     const mediaId = req.params.mediaId;
@@ -590,7 +635,7 @@ products.delete("/admin/media/:mediaId", async (req: Request, res: Response) => 
   }
 });
 
-/** ADMIN — PATCH /api/admin/variants/:variantId */
+/** ADMIN — PATCH /api/products/admin/variants/:variantId */
 products.patch("/admin/variants/:variantId", async (req: Request, res: Response) => {
   try {
     const variantId = req.params.variantId;
@@ -626,7 +671,7 @@ products.patch("/admin/variants/:variantId", async (req: Request, res: Response)
   }
 });
 
-/** ADMIN — POST /api/admin/seed/popular  (body: { mode: "insert" | "upsert" }) */
+/** ADMIN — POST /api/products/admin/seed/popular  (body: { mode: "insert" | "upsert" }) */
 products.post("/admin/seed/popular", async (req: Request, res: Response) => {
   try {
     const mode: "insert" | "upsert" = (req.body?.mode === "upsert" ? "upsert" : "insert");
@@ -700,8 +745,6 @@ products.post("/admin/seed/popular", async (req: Request, res: Response) => {
       // 2) wariant – upsert po kompozycie (productId, sku)
       const sku = (slug || name || "SKU").toUpperCase();
 
-      // Uwaga: po zmianie schematu i `prisma generate` pole `productId_sku` będzie dostępne w typach.
-      // Poniższe `as any` pozwala przejść kompilacji nawet zanim wygenerujesz nowy klient.
       await (prisma.variant as any).upsert({
         where: { productId_sku: { productId: prod.id, sku } },
         create: {

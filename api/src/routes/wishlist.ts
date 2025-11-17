@@ -31,7 +31,7 @@ wishlist.get("/", requireAuth, async (req: Request, res: Response) => {
   const items = await prisma.wishlistItem.findMany({
     where: { wishlistId: wl.id },
     include: {
-      Product: {
+      product: {
         include: {
           media: true,
           variants: true,

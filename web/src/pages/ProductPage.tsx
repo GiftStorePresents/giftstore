@@ -206,6 +206,12 @@ interface ProductPageProps {
 export default function ProductPage({ setToast }: ProductPageProps) {
   const { slug = "" } = useParams<{ slug: string }>();
 
+  // 🔁 ważne: reaguj na zmianę sluga (scroll top + miękki reset kilku stanów UI)
+  useEffect(() => {
+    try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch { window.scrollTo(0, 0); }
+    // inne szybkie resety UI robimy warunkowo w efektach niżej (promo/stock/thumbs)
+  }, [slug]);
+
   const { product: rawProduct, loading, error } = useApiProduct(slug);
   const product: CardProduct | null = useMemo(
     () => (rawProduct ? (mapApiProductToCard(rawProduct) as CardProduct) : null),
@@ -360,6 +366,9 @@ export default function ProductPage({ setToast }: ProductPageProps) {
 
   /* Promocja – timer */
   useEffect(() => {
+    // resetuj UI promo dla nowego produktu
+    setPromoEnd(null);
+    setTimeLeft("");
     if (!product) return;
     if (product.promo) {
       const end = getOrInitPromoEnd(product.slug);
@@ -367,19 +376,23 @@ export default function ProductPage({ setToast }: ProductPageProps) {
       setTimeLeft(formatTimeLeft(end.getTime() - Date.now()));
       const t = setInterval(() => setTimeLeft(formatTimeLeft(end.getTime() - Date.now())), 1000);
       return () => clearInterval(t);
-    } else {
-      setPromoEnd(null);
-      setTimeLeft("");
     }
   }, [product]);
 
   /* Stock (symulacja / podkład) */
   useEffect(() => {
+    // reset lokalnego stanu wraz ze zmianą produktu
+    setStock(0);
     if (!product) return;
     const explicit = product.stock ?? null;
     if (explicit !== null && explicit !== undefined) setStock(explicit);
     else setStock(seededInt(product.slug, 2, 15));
   }, [product]);
+
+  /* Miniatury: wyczyść referencję przy zmianie produktu */
+  useEffect(() => {
+    setThumbsSwiper(null);
+  }, [slug]);
 
   /* Historia: ostatnio oglądane */
   useEffect(() => {
@@ -710,7 +723,6 @@ function BundleSection({
       <p className="text-center text-gray-600 mb-6">
         Dobierz dodatki, które świetnie pasują do <span className="font-semibold">{hostProductName}</span>.
       </p>
-
       <div
         className={`grid gap-6 ${
           cols === 4 ? "grid-cols-4" : cols === 3 ? "grid-cols-3" : cols === 2 ? "grid-cols-2" : "grid-cols-1"
@@ -749,7 +761,6 @@ function LastViewedSection({
       >
         {visible.map((p) => (
           <div key={`rv-${p.slug}`} className="w-full max-w-[360px] mx-auto h-full">
-            {/* ⬇️ Podniesiona wysokość + rozciąganie wrappera */}
             <ProductCard product={p} setToast={setToast} fixedHeight={500} />
           </div>
         ))}
@@ -780,13 +791,16 @@ function RelatedSection({ all, currentSlug }: { all: CardProduct[]; currentSlug:
             key={`rel-${p.slug}`}
             className="rounded-2xl border-2 border-gold bg-white shadow-sm overflow-hidden transition hover:shadow-md"
           >
-            <Link to={`/product/${p.slug}`} className="block">
+            <Link to={{ pathname: `/product/${encodeURIComponent(p.slug)}` }} className="block">
               <div className="aspect-[16/10] w-full bg-bgUltraLight">
                 <img src={p.image} alt={p.name} className="w-full h-full object-cover" loading="lazy" />
               </div>
             </Link>
             <div className="p-4">
-              <Link to={`/product/${p.slug}`} className="font-semibold text-mainRed hover:underline">
+              <Link
+                to={{ pathname: `/product/${encodeURIComponent(p.slug)}` }}
+                className="font-semibold text-mainRed hover:underline"
+              >
                 {p.name}
               </Link>
               <p className="mt-1 text-sm text-gray-600 line-clamp-2">{p.description}</p>
@@ -840,7 +854,7 @@ function NotifyMeButton({
         if (res.status === 429) text ||= "Poczekaj chwilę przed ponowną próbą.";
         throw new Error(text || "Nie udało się zapisać zgłoszenia.");
       }
-
+      
       // lokalny cache
       try {
         const key = "notify:back-in-stock";

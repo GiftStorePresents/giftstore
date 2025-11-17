@@ -1,10 +1,7 @@
 // src/pages/AdminProductsPage.tsx
 // =================================================================================================
-//  AdminProductsPage — produkcyjny panel zarządzania produktami
-//  Build: 2025-10-30 (prod)  |  Patch: 2025-11-02
-//  Zmiany (patch):
-//   • Modale mają max-h i wewnętrzny scroll (max-h-[90vh]/[85vh] + overflow-y-auto + shadow)
-//   • Naprawa podglądu obrazka (bez podwójnego buildImageUrl)
+//  AdminProductsPage — panel zarządzania produktami (pełna wersja)
+//  Build: 2025-10-30 | Patch: 2025-11-13 (discountUntil + dirty guard + prime-only-once)
 // =================================================================================================
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -23,6 +20,15 @@ type VariantRow = {
   color?: string | null;
   size?: string | null;
   personalize?: boolean | null;
+
+  // RABAT
+  discountActive?: boolean | null;
+  salePriceCents?: number | null;
+  showDiscountPercent?: boolean | null;
+
+  // NOWE: koniec promocji (ISO) + alias z BE
+  discountUntil?: string | null;
+  discountEndAt?: string | null;
 };
 
 type MediaRow = {
@@ -48,7 +54,8 @@ type ProductRow = {
   variants: VariantRow[];
   media?: MediaRow[];
   featured?: boolean;
-  // Fallbacki obrazu (np. z seeda lub starszego API)
+
+  // Fallbacki obrazu
   imageUrl?: string;
   image?: string;
 };
@@ -56,12 +63,56 @@ type ProductRow = {
 /* ================================================================================================
    Utils
 ================================================================================================ */
-
 function computeMinPrice(variants: VariantRow[] | undefined | null): number | null {
   if (!Array.isArray(variants) || variants.length === 0) return null;
-  const vals = variants.map((v) => v?.priceCents).filter((n): n is number => typeof n === "number");
+  const vals = variants
+    .map((v) => (typeof v?.priceCents === "number" ? v.priceCents : null))
+    .filter((n): n is number => typeof n === "number");
   if (!vals.length) return null;
   return Math.min(...vals);
+}
+
+function computeMinEffectivePrice(variants: VariantRow[] | undefined | null): {
+  effectiveCents: number | null;
+  baseForPct: number | null;
+} {
+  if (!Array.isArray(variants) || variants.length === 0) return { effectiveCents: null, baseForPct: null };
+
+  let minEff: number | null = null;
+  let baseForPct: number | null = null;
+
+  for (const v of variants) {
+    const base = typeof v?.priceCents === "number" ? v.priceCents : null;
+    if (!base) continue;
+    const eff =
+      v?.discountActive && typeof v?.salePriceCents === "number" && v.salePriceCents < base
+        ? v.salePriceCents
+        : base;
+
+    if (minEff === null || eff < minEff) {
+      minEff = eff;
+      baseForPct = base;
+    }
+  }
+
+  return { effectiveCents: minEff, baseForPct };
+}
+
+function percentOff(baseCents?: number | null, saleCents?: number | null): number | null {
+  if (
+    typeof baseCents === "number" &&
+    typeof saleCents === "number" &&
+    saleCents < baseCents &&
+    baseCents > 0
+  ) {
+    return Math.round((1 - saleCents / baseCents) * 100);
+  }
+  return null;
+}
+
+function fmtZl(cents?: number | null): string {
+  if (typeof cents !== "number") return "-";
+  return (cents / 100).toFixed(2) + " zł";
 }
 
 function getCookie(name: string) {
@@ -107,15 +158,30 @@ function pickProductShape(res: any, wantedId?: string): ProductRow | null {
   return null;
 }
 
-// Buduje pełny URL dla miniatur (API_BASE dla ścieżek względnych)
+// Pełny URL dla miniatur (API_BASE dla ścieżek względnych)
 function buildImageUrl(u?: string): string {
   if (!u) return "";
   if (/^https?:\/\//i.test(u)) return u;
   return `${API_BASE}${u.startsWith("/") ? u : `/${u}`}`;
 }
 
+// Konwersje: ISO ⇄ wartość dla <input type="datetime-local">
+function isoToLocalInputValue(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function localInputValueToIso(localStr?: string | null): string | null {
+  if (!localStr) return null; // pusty → null
+  const d = new Date(localStr); // traktowany jako czas lokalny
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 /* ================================================================================================
-   Upload obrazków — fallback końcówek i nazw pól
+   Upload obrazków
 ================================================================================================ */
 async function uploadProductImageDirect(productId: string, file: File) {
   await ensureCsrf();
@@ -216,13 +282,10 @@ export default function AdminProductsPage() {
         20,
         q,
         withDeleted,
-        {
-          category: category.trim() || undefined,
-          featured: !!onlyFeatured,
-        }
+        { category: category.trim() || undefined, featured: !!onlyFeatured }
       );
-      setItems(res.items || []);
-      setPages(res.pages || 1);
+      setItems((res as any).items || []);
+      setPages((res as any).pages || 1);
       setSelectedIds(new Set());
     } catch (err: any) {
       console.error("[AdminProductsPage] load() failed:", err);
@@ -236,65 +299,8 @@ export default function AdminProductsPage() {
 
   const reloadProducts = load;
 
-  // seed popular (SAFE → helper → fetch fallback)
-  const runSeed = useCallback(async () => {
-    try {
-      const safe = (api as any)?.admin?.seedPopularSafe as
-        | ((mode?: "insert" | "upsert") => Promise<{ ok: boolean; status?: number; message?: string; data: any }>)
-        | undefined;
-
-      const toastFrom = (data: any) => {
-        const added   = Number(data?.added   ?? data?.createdCount ?? (Array.isArray(data?.created) ? data.created.length : 0) ?? 0);
-        const updated = Number(data?.updated ?? data?.updatedCount ?? 0);
-        const restored= Number(data?.restored?? data?.restoredCount?? 0);
-        const skipped = Number(data?.skipped ?? data?.skippedCount ?? 0);
-        return `✅ Seed OK: dodano=${added}, zaktualizowano=${updated}, przywrócono=${restored}, pominięto=${skipped}`;
-      };
-
-      if (typeof safe === "function") {
-        const r = await safe("upsert");
-        if (!r.ok) {
-          const msg = `❌ Seed failed${r.status ? ` [${r.status}]` : ""}: ${r.message || "Unknown error"}`;
-          console.error("seedPopularSafe error:", r);
-          showToast(msg);
-          return;
-        }
-        showToast(toastFrom(r.data));
-        setPage(1);
-        await reloadProducts();
-        return;
-      }
-
-      const viaHelper = api?.admin?.seedPopular;
-      if (typeof viaHelper === "function") {
-        const data: any = await viaHelper("upsert");
-        showToast(toastFrom(data));
-        setPage(1);
-        await reloadProducts();
-        return;
-      }
-
-      await ensureCsrf();
-      const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
-      const res = await fetch(`${API_BASE}/api/admin/seed/popular`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-        body: JSON.stringify({ mode: "upsert" }),
-      });
-      if (!res.ok) throw new Error(await readError(res));
-      const data = await res.json().catch(() => ({}));
-      showToast(toastFrom(data));
-      setPage(1);
-      await reloadProducts();
-    } catch (e: any) {
-      console.error("[runSeed SAFE] error:", e);
-      showToast(e?.message || "Seed nie powiódł się.");
-    }
-  }, [reloadProducts, showToast]);
-
   /* ---------------------------------------------------------------------------------------------
-     Akcje masowe: WSZYSTKIE
+     Akcje masowe (przykładowe)
   --------------------------------------------------------------------------------------------- */
   async function bulkSoftDeleteAll() {
     if (!confirm("Na pewno USUNĄĆ (soft) WSZYSTKIE produkty?")) return;
@@ -344,9 +350,6 @@ export default function AdminProductsPage() {
     }
   }
 
-  /* ---------------------------------------------------------------------------------------------
-     Akcje masowe na zaznaczonych wierszach
-  --------------------------------------------------------------------------------------------- */
   async function bulkSoftDeleteSelected() {
     if (selectedIds.size === 0) return;
     if (!confirm(`Usunąć (soft) zaznaczone ${selectedIds.size} produktów?`)) return;
@@ -373,9 +376,6 @@ export default function AdminProductsPage() {
     }
   }
 
-  /* ---------------------------------------------------------------------------------------------
-     Pojedynczy hard delete (fallback 404 -> bulk z ids)
-  --------------------------------------------------------------------------------------------- */
   async function hardDeleteOne(id: string) {
     if (!confirm("Na pewno TRWALE usunąć ten produkt?")) return;
     try {
@@ -392,11 +392,70 @@ export default function AdminProductsPage() {
     }
   }
 
+  /* ---------------------------------------------------------------------------------------------
+     Import/seed przykładowy (dev)
+  --------------------------------------------------------------------------------------------- */
+  const runSeed = useCallback(async () => {
+    try {
+      const safe = (api as any)?.admin?.seedPopularSafe as
+        | ((mode?: "insert" | "upsert") => Promise<{ ok: boolean; status?: number; message?: string; data: any }>)
+        | undefined;
+
+      const toastFrom = (data: any) => {
+        const added   = Number(data?.added   ?? data?.createdCount ?? (Array.isArray(data?.created) ? data.created.length : 0) ?? 0);
+        const updated = Number(data?.updated ?? data?.updatedCount ?? 0);
+        const restored= Number(data?.restored?? data?.restoredCount?? 0);
+        const skipped = Number(data?.skipped ?? data?.skippedCount ?? 0);
+        return `✅ Seed OK: dodano=${added}, zaktualizowano=${updated}, przywrócono=${restored}, pominięto=${skipped}`;
+      };
+
+      if (typeof safe === "function") {
+        const r = await safe("upsert");
+        if (!r.ok) {
+          const msg = `❌ Seed failed${r.status ? ` [${r.status}]` : ""}: ${r.message || "Unknown error"}`;
+          console.error("seedPopularSafe error:", r);
+          showToast(msg);
+          return;
+        }
+        showToast(toastFrom(r.data));
+        setPage(1);
+        await reloadProducts();
+        return;
+      }
+
+      const viaHelper = (api as any)?.admin?.seedPopular;
+      if (typeof viaHelper === "function") {
+        const data: any = await viaHelper("upsert");
+        showToast(toastFrom(data));
+        setPage(1);
+        await reloadProducts();
+        return;
+      }
+
+      await ensureCsrf();
+      const csrf = getCookie("csrf") || getCookie("XSRF-TOKEN");
+      const res = await fetch(`${API_BASE}/api/admin/seed/popular`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+        body: JSON.stringify({ mode: "upsert" }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json().catch(() => ({}));
+      showToast(toastFrom(data));
+      setPage(1);
+      await reloadProducts();
+    } catch (e: any) {
+      console.error("[runSeed SAFE] error:", e);
+      showToast(e?.message || "Seed nie powiódł się.");
+    }
+  }, [reloadProducts, showToast]);
+
   async function importUpsertPopular() {
     if (!confirm("Uruchomić REIMPORT/UPSERT PopularGifts?")) return;
     setBulkBusy("upsert");
     try {
-      const viaHelper = api?.admin?.seedPopular;
+      const viaHelper = (api as any)?.admin?.seedPopular;
       const toastFrom = (data: any) => {
         const added   = Number(data?.added   ?? data?.createdCount ?? (Array.isArray(data?.created) ? data.created.length : 0) ?? 0);
         const updated = Number(data?.updated ?? data?.updatedCount ?? 0);
@@ -406,7 +465,7 @@ export default function AdminProductsPage() {
       };
 
       if (typeof viaHelper === "function") {
-        const data: any = await viaHelper("upsert"); // "insert" | "upsert"
+        const data: any = await viaHelper("upsert");
         alert(toastFrom(data));
         setPage(1);
         await load();
@@ -434,7 +493,7 @@ export default function AdminProductsPage() {
   }
 
   /* ---------------------------------------------------------------------------------------------
-     Upload — wybór zdjęcia (native → fallback)
+     Upload — wybór zdjęcia
   --------------------------------------------------------------------------------------------- */
   async function chooseAndUpload(productId: string) {
     try {
@@ -667,7 +726,7 @@ export default function AdminProductsPage() {
               <th className="text-left">Obrazek</th>
               <th className="text-left">Nazwa</th>
               <th className="text-left">Slug</th>
-              <th className="text-left">Cena min</th>
+              <th className="text-left">Cena min (efektywna)</th>
               <th className="text-left">Popularny</th>
               <th className="text-left">Status</th>
               <th className="text-left">Akcje</th>
@@ -675,7 +734,18 @@ export default function AdminProductsPage() {
           </thead>
           <tbody>
             {items.map((p) => {
-              const minPrice = computeMinPrice(p.variants);
+              const minBase = computeMinPrice(p.variants);
+              const { effectiveCents, baseForPct } = computeMinEffectivePrice(p.variants);
+
+              const pct = percentOff(baseForPct, effectiveCents);
+              const hasAnyActiveDiscount = p.variants?.some(
+                (v) =>
+                  v?.discountActive &&
+                  typeof v?.salePriceCents === "number" &&
+                  typeof v?.priceCents === "number" &&
+                  v.salePriceCents < v.priceCents
+              );
+
               const checked = selectedIds.has(p.id);
               const thumb =
                 p.media?.[0]?.url
@@ -715,12 +785,41 @@ export default function AdminProductsPage() {
                     )}
                   </td>
 
-                  <td className="font-semibold">{p.name}</td>
+                  <td className="font-semibold">
+                    <div className="flex items-center gap-2">
+                      <span>{p.name}</span>
+                      {hasAnyActiveDiscount && (
+                        <span className="admin-badge" style={{ background: "#153b2b", color: "#afffdf" }}>
+                          PROMO
+                        </span>
+                      )}
+                    </div>
+                  </td>
+
                   <td>{p.slug}</td>
-                  <td>{minPrice !== null ? (minPrice / 100).toFixed(2) + " zł" : "-"}</td>
+
+                  <td>
+                    {effectiveCents !== null ? (
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-bold">{fmtZl(effectiveCents)}</span>
+                        {minBase !== null && effectiveCents < minBase && (
+                          <span className="text-xs line-through opacity-70">{fmtZl(minBase)}</span>
+                        )}
+                        {pct ? (
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                            −{pct}%
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+
                   <td className="text-center" title={p.featured ? "Produkt wyróżniony" : "Zwykły"}>
                     {p.featured ? "★" : "–"}
                   </td>
+
                   <td>
                     {p.deletedAt ? (
                       <span
@@ -734,6 +833,7 @@ export default function AdminProductsPage() {
                       "Aktywny"
                     )}
                   </td>
+
                   <td>
                     <div className="flex flex-wrap gap-2 items-center">
                       <button
@@ -920,6 +1020,14 @@ function CreateProductModal({
     size: "",
     personalize: false,
     featured: false,
+
+    // RABAT start
+    discountActive: false,
+    saleZl: "",
+    showDiscountPercent: true,
+
+    // KONIEC PROMOCJI (lokalny string do inputa)
+    discountUntilLocal: "",
   });
   const [file, setFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
@@ -962,20 +1070,44 @@ function CreateProductModal({
       }
       setCreating(true);
 
+      const saleCents =
+        String(form.saleZl).trim() === "" ? null : parseZlToCents(form.saleZl);
+
+      if (form.discountActive && saleCents === null) {
+        alert("Włączono rabat, ale nie podano nowej ceny.");
+        setCreating(false);
+        return;
+      }
+
+      const discountUntilIso = localInputValueToIso(form.discountUntilLocal);
+
+      // 🔹 Tu: payload wariantu jako any, żeby TS nie krzyczał o discountUntil
+      const variantPayload: any = {
+        sku: form.sku || form.slug.toUpperCase(),
+        priceCents,
+        stock: form.stock,
+        color: form.color || undefined,
+        size: form.size || undefined,
+        personalize: !!form.personalize,
+
+        // RABAT
+        discountActive: !!form.discountActive,
+        salePriceCents: saleCents,
+        showDiscountPercent: !!form.showDiscountPercent,
+      };
+
+      if (discountUntilIso !== null) {
+        variantPayload.discountUntil = discountUntilIso;
+        variantPayload.discountEndAt = discountUntilIso; // alias, jeśli BE go obsłuży
+      }
+
       const created = await api.admin.createProduct({
         name: form.name,
         slug: form.slug,
         description: form.description,
         brand: form.brand,
         category: coerceCategorySlug(form.category),
-        variant: {
-          sku: form.sku || form.slug.toUpperCase(),
-          priceCents,
-          stock: form.stock,
-          color: form.color || undefined,
-          size: form.size || undefined,
-          personalize: !!form.personalize,
-        },
+        variant: variantPayload,
       });
 
       const productId = (created as any)?.product?.id;
@@ -1149,6 +1281,55 @@ function CreateProductModal({
             Popularny (featured)
           </label>
 
+          {/* RABAT */}
+          <label className="flex items-center gap-2 col-span-2">
+            <input
+              type="checkbox"
+              checked={form.discountActive}
+              onChange={(e) => setForm({ ...form, discountActive: e.target.checked })}
+            />
+            Włącz rabat (promocję)
+          </label>
+
+          <div className="grid grid-cols-2 gap-3 col-span-2">
+            <div>
+              <label className="text-sm text-[var(--adm-muted)]">Nowa cena (zł)</label>
+              <input
+                className="admin-input w-full"
+                inputMode="decimal"
+                placeholder="np. 39.99"
+                value={form.saleZl}
+                onChange={(e) => setForm({ ...form, saleZl: e.target.value })}
+                disabled={!form.discountActive}
+              />
+            </div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={form.showDiscountPercent}
+                onChange={(e) => setForm({ ...form, showDiscountPercent: e.target.checked })}
+                disabled={!form.discountActive}
+              />
+              Pokazuj procent rabatu
+            </label>
+          </div>
+
+          {/* KONIEC PROMOCJI */}
+          <div className="col-span-2">
+            <label className="text-sm text-[var(--adm-muted)]">Koniec promocji (data i godz.)</label>
+            <input
+              type="datetime-local"
+              className="admin-input w-full"
+              value={form.discountUntilLocal}
+              onChange={(e) => setForm({ ...form, discountUntilLocal: e.target.value })}
+              disabled={!form.discountActive}
+            />
+            <p className="text-xs text-[var(--adm-muted)] mt-1">
+              Zostaw puste, jeśli promocja ma działać bez terminu końca.
+            </p>
+          </div>
+
+          {/* Upload */}
           <div className="col-span-2">
             <label className="block text-sm text-[var(--adm-muted)] mb-1">Zdjęcie (opcjonalnie)</label>
             <div className="flex items-center gap-2">
@@ -1195,7 +1376,7 @@ function CreateProductModal({
 }
 
 /* ================================================================================================
-   EditProductModal
+   EditProductModal — BEZPIECZNIK (prime-only-once + dirty guard)
 ================================================================================================ */
 function EditProductModal({
   id,
@@ -1226,8 +1407,21 @@ function EditProductModal({
   const [variantSize, setVariantSize] = useState<string>("");
   const [variantPersonalize, setVariantPersonalize] = useState<boolean>(false);
 
+  // RABAT
+  const [variantDiscountActive, setVariantDiscountActive] = useState<boolean>(false);
+  const [variantSaleZl, setVariantSaleZl] = useState<string>("");
+  const [variantShowPercent, setVariantShowPercent] = useState<boolean>(true);
+
+  // KONIEC PROMOCJI (lokalna wartość inputa)
+  const [variantDiscountUntilLocal, setVariantDiscountUntilLocal] = useState<string>("");
+
   const [uploading, setUploading] = useState(false);
   const hiddenEditRef = useRef<HTMLInputElement | null>(null);
+
+  // BEZPIECZNIK
+  const primedRef = useRef(false);
+  const dirtyRef  = useRef(false);
+  const markDirty = () => { dirtyRef.current = true; };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1239,7 +1433,7 @@ function EditProductModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, slug, description, brand, category, featured, variantId, variantSku, variantZl, variantStock, variantColor, variantSize, variantPersonalize]);
+  }, [name, slug, description, brand, category, featured, variantId, variantSku, variantZl, variantStock, variantColor, variantSize, variantPersonalize, variantDiscountActive, variantSaleZl, variantShowPercent, variantDiscountUntilLocal]);
 
   const parseZlToCents = (s: string): number => {
     const n = Number(String(s).replace(",", ".").trim());
@@ -1266,6 +1460,16 @@ function EditProductModal({
     setVariantColor(String(v?.color ?? ""));
     setVariantSize(String(v?.size ?? ""));
     setVariantPersonalize(!!v?.personalize);
+
+    setVariantDiscountActive(!!v?.discountActive);
+    setVariantSaleZl(
+      typeof v?.salePriceCents === "number" ? (v.salePriceCents / 100).toFixed(2) : ""
+    );
+    setVariantShowPercent(v?.showDiscountPercent ?? true);
+
+    // PRIMER: data końca (akceptuj discountUntil lub discountEndAt)
+    const untilIso = (v as any)?.discountUntil ?? (v as any)?.discountEndAt ?? null;
+    setVariantDiscountUntilLocal(isoToLocalInputValue(untilIso));
   }
 
   async function pickForEdit(productId: string) {
@@ -1277,7 +1481,7 @@ function EditProductModal({
         setUploading(true);
         try {
           await uploadProductImageDirect(productId, f);
-          await load();
+          await load(); // dirtyRef ochroni pola przed nadpisaniem
         } finally {
           setUploading(false);
         }
@@ -1298,6 +1502,11 @@ function EditProductModal({
       color?: string | undefined;
       size?: string | undefined;
       personalize?: boolean;
+      discountActive?: boolean;
+      salePriceCents?: number | null;
+      showDiscountPercent?: boolean;
+      discountUntil?: string | null;
+      discountEndAt?: string | null;
     }
   ) {
     await ensureCsrf();
@@ -1316,12 +1525,15 @@ function EditProductModal({
   }
 
   async function load() {
-    setLoading(true);
+    setLoading(!primedRef.current);
     try {
       const res = await api.admin.productById(id);
       const p = pickProductShape(res, id);
       if (!p) throw new Error("Produkt nie znaleziony lub nieprawidłowy format odpowiedzi API.");
-      primeFromProduct(p);
+      if (!dirtyRef.current) {
+        primeFromProduct(p);
+        primedRef.current = true;
+      }
     } catch (err: any) {
       console.error("[EditProduct] load() failed:", err);
       alert(err?.message || "Nie udało się pobrać produktu.");
@@ -1330,16 +1542,31 @@ function EditProductModal({
     }
   }
 
+  // Primer tylko raz + GET bez nadpisu gdy coś zmieniono
   useEffect(() => {
-    if (initialProduct) {
+    if (initialProduct && !primedRef.current) {
       try {
         primeFromProduct(initialProduct);
+        primedRef.current = true;
         setLoading(false);
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     }
-    load();
+    (async () => {
+      setLoading(!primedRef.current);
+      try {
+        const res = await api.admin.productById(id);
+        const p = pickProductShape(res, id);
+        if (!p) throw new Error("Produkt nie znaleziony.");
+        if (!dirtyRef.current) {
+          primeFromProduct(p);
+          primedRef.current = true;
+        }
+      } catch (e: any) {
+        alert(e?.message || "Nie udało się pobrać produktu.");
+      } finally {
+        setLoading(false);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -1381,6 +1608,16 @@ function EditProductModal({
       });
 
       if (variantId) {
+        const saleCents =
+          String(variantSaleZl).trim() === "" ? null : parseZlToCents(variantSaleZl);
+
+        if (variantDiscountActive && saleCents === null) {
+          alert("Włączono rabat, ale nie podano nowej ceny. Uzupełnij ją.");
+          return;
+        }
+
+        const discountUntilIso = localInputValueToIso(variantDiscountUntilLocal);
+
         const payload = {
           sku: variantSku || null,
           priceCents: parseZlToCents(variantZl),
@@ -1388,8 +1625,25 @@ function EditProductModal({
           color: variantColor ? variantColor : undefined,
           size: variantSize ? variantSize : undefined,
           personalize: !!variantPersonalize,
+
+          discountActive: !!variantDiscountActive,
+          salePriceCents: saleCents,
+          showDiscountPercent: !!variantShowPercent,
+
+          // KONIEC PROMOCJI
+          discountUntil: discountUntilIso,
+          discountEndAt: discountUntilIso, // alias bez szkody, jeśli BE go ignoruje
         };
-        await saveVariant(variantId, payload);
+
+        const res = await saveVariant(variantId, payload);
+        // Opcjonalnie: odśwież lokalnie pierwszy wariant bez zbijania dirty
+        const saved = (res && (res as any).variant) ? (res as any).variant : null;
+        if (saved) {
+          setProduct((prev) => prev
+            ? { ...prev, variants: [{ ...(prev.variants?.[0] || {}), ...saved }] }
+            : prev
+          );
+        }
       }
 
       onDone();
@@ -1399,7 +1653,6 @@ function EditProductModal({
     }
   };
 
-  // Obraz główny podgląd: pierwszy z media albo fallback imageUrl/image
   const cover =
     product.media?.[0]?.url
       ? imgSrc(product.media[0].url)
@@ -1425,7 +1678,6 @@ function EditProductModal({
 
         {cover ? (
           <div className="mb-3">
-            {/* cover jest już pełnym URL-em – NIE wywołujemy ponownie buildImageUrl */}
             <img src={cover} alt="" className="w-full max-h-60 object-cover rounded" />
           </div>
         ) : null}
@@ -1438,7 +1690,7 @@ function EditProductModal({
               className="admin-input w-full"
               placeholder="Np. Kubek z nadrukiem"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { setName(e.target.value); markDirty(); }}
             />
           </div>
           <div>
@@ -1447,7 +1699,7 @@ function EditProductModal({
               className="admin-input w-full"
               placeholder="np. kubek-z-nadrukiem"
               value={slug}
-              onChange={(e) => setSlug(e.target.value)}
+              onChange={(e) => { setSlug(e.target.value); markDirty(); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
@@ -1463,7 +1715,7 @@ function EditProductModal({
               rows={3}
               placeholder="Krótki opis produktu…"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => { setDescription(e.target.value); markDirty(); }}
             />
           </div>
           <div>
@@ -1472,7 +1724,7 @@ function EditProductModal({
               className="admin-input w-full"
               placeholder="np. GiftStore"
               value={brand}
-              onChange={(e) => setBrand(e.target.value)}
+              onChange={(e) => { setBrand(e.target.value); markDirty(); }}
             />
           </div>
           <div>
@@ -1481,7 +1733,7 @@ function EditProductModal({
               className="admin-input w-full"
               placeholder="np. dla-niej / na-urodziny"
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              onChange={(e) => { setCategory(e.target.value); markDirty(); }}
             />
           </div>
 
@@ -1489,7 +1741,7 @@ function EditProductModal({
             <input
               type="checkbox"
               checked={featured}
-              onChange={(e) => setFeatured(e.target.checked)}
+              onChange={(e) => { setFeatured(e.target.checked); markDirty(); }}
             />
             Popularny (featured)
           </label>
@@ -1505,7 +1757,7 @@ function EditProductModal({
                 className="admin-input w-full"
                 placeholder="np. KUBEK-RED-M"
                 value={variantSku}
-                onChange={(e) => setVariantSku(e.target.value)}
+                onChange={(e) => { setVariantSku(e.target.value); markDirty(); }}
               />
             </div>
             <div>
@@ -1515,7 +1767,7 @@ function EditProductModal({
                 inputMode="decimal"
                 placeholder="np. 49.99"
                 value={variantZl}
-                onChange={(e) => setVariantZl(e.target.value)}
+                onChange={(e) => { setVariantZl(e.target.value); markDirty(); }}
               />
             </div>
             <div>
@@ -1525,7 +1777,7 @@ function EditProductModal({
                 className="admin-input w-full"
                 placeholder="np. 25"
                 value={variantStock}
-                onChange={(e) => setVariantStock(Number(e.target.value) || 0)}
+                onChange={(e) => { setVariantStock(Number(e.target.value) || 0); markDirty(); }}
               />
             </div>
             <div>
@@ -1534,7 +1786,7 @@ function EditProductModal({
                 className="admin-input w-full"
                 placeholder="np. czerwony"
                 value={variantColor}
-                onChange={(e) => setVariantColor(e.target.value)}
+                onChange={(e) => { setVariantColor(e.target.value); markDirty(); }}
               />
             </div>
             <div>
@@ -1543,17 +1795,66 @@ function EditProductModal({
                 className="admin-input w-full"
                 placeholder="np. M"
                 value={variantSize}
-                onChange={(e) => setVariantSize(e.target.value)}
+                onChange={(e) => { setVariantSize(e.target.value); markDirty(); }}
               />
             </div>
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={variantPersonalize}
-                onChange={(e) => setVariantPersonalize(e.target.checked)}
+                onChange={(e) => { setVariantPersonalize(e.target.checked); markDirty(); }}
               />
               Personalizacja dostępna
             </label>
+          </div>
+
+          {/* RABAT + KONIEC PROMOCJI */}
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={variantDiscountActive}
+                onChange={(e) => { setVariantDiscountActive(e.target.checked); markDirty(); }}
+              />
+              Włącz rabat (promocję)
+            </label>
+
+            <div>
+              <label className="text-sm text-[var(--adm-muted)]">Nowa cena (zł)</label>
+              <input
+                className="admin-input w-full"
+                inputMode="decimal"
+                placeholder="np. 39.99"
+                value={variantSaleZl}
+                onChange={(e) => { setVariantSaleZl(e.target.value); markDirty(); }}
+                disabled={!variantDiscountActive}
+              />
+            </div>
+
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={variantShowPercent}
+                onChange={(e) => { setVariantShowPercent(e.target.checked); markDirty(); }}
+                disabled={!variantDiscountActive}
+              />
+              Pokazuj procent rabatu
+            </label>
+
+            {/* NOWE — data i godzina końca */}
+            <div className="md:col-span-3 col-span-2">
+              <label className="text-sm text-[var(--adm-muted)]">Koniec promocji (data i godz.)</label>
+              <input
+                type="datetime-local"
+                className="admin-input w-full"
+                value={variantDiscountUntilLocal}
+                onChange={(e) => { setVariantDiscountUntilLocal(e.target.value); markDirty(); }}
+                disabled={!variantDiscountActive}
+              />
+              <p className="text-xs text-[var(--adm-muted)] mt-1">
+                Zostaw puste, jeśli promocja ma działać bez terminu końca.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -1642,7 +1943,7 @@ function EditProductModal({
 }
 
 /* ================================================================================================
-   ImportPopularGiftsModal (DEV only; portal)
+   ImportPopularGiftsModal (DEV only)
 ================================================================================================ */
 function ImportPopularGiftsModal({
   onClose,
@@ -1691,7 +1992,7 @@ function ImportPopularGiftsModal({
       push("Start importu…");
       const mode: "insert" | "upsert" = upsert ? "upsert" : "insert";
 
-      const viaHelper = api?.admin?.seedPopular;
+      const viaHelper = (api as any)?.admin?.seedPopular;
       const msgFrom = (data: any) => {
         const added   = Number(data?.added   ?? data?.createdCount ?? (Array.isArray(data?.created) ? data.created.length : 0) ?? 0);
         const updated = Number(data?.updated ?? data?.updatedCount ?? 0);

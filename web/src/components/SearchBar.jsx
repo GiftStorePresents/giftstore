@@ -1,126 +1,70 @@
-// web/src/components/SearchBar.jsx
+// src/components/SearchBar.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FaSearch } from "react-icons/fa";
-import Fuse from "fuse.js";
 
-// 🔴 WAŻNE: importuj z @data (lokalny re-eksport), NIE z @shared
-//   -> web/src/data/popularGiftsData.ts re-eksportuje tablicę ze /shared
-import productsRaw from "@data/popularGiftsData";
+// korzystamy z globalnego indeksu i wyszukiwarki
+import { getSearchVersion, searchProducts } from "../utils/searchUtils";
 
-// Normalizacja PL znaków do wyszukiwania (nie do renderu!)
-function normalize(str = "") {
-  return String(str)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
-// Mapowanie różnych kształtów danych na jednolity obiekt do UI + wyszukiwarki
+// Mapowanie SearchItem → obiekt do renderu w liście podpowiedzi
 function toUiProduct(p = {}) {
   const slug = p.slug || "";
   const name = p.name || "";
   const description = p.description || "";
+  const image = p.image || "/og-image.jpg";
 
-  // Obrazek: preferuj p.image, potem p.imageUrl, potem ewentualnie z media/url
-  const image =
-    p.image ||
-    p.imageUrl ||
-    (Array.isArray(p.media) && p.media[0] && (p.media[0].url || p.media[0].src)) ||
-    "/placeholder.png";
-
-  // Cena: preferuj priceCents -> zł, fallback price (już w zł)
+  // Cena: preferuj number → `xx.xx zł`, w przeciwnym razie kreska
   let priceZl = "";
-  if (typeof p.priceCents === "number") {
-    priceZl = (p.priceCents / 100).toFixed(2);
-  } else if (typeof p.price === "number") {
+  if (typeof p.price === "number" && !Number.isNaN(p.price)) {
     priceZl = Number(p.price).toFixed(2);
   }
 
-  // Tag'i: mogą nie istnieć
-  const tags = Array.isArray(p.tags) ? p.tags : [];
-
-  return { slug, name, description, image, priceZl, tags, __orig: p };
+  return { slug, name, description, image, priceZl, __orig: p };
 }
 
 export default function SearchBar() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState([]);
+  const [ver, setVer] = useState(() => getSearchVersion()); // wersja datasetu
   const ref = useRef(null);
   const navigate = useNavigate();
 
-  // Znormalizowany widok danych do Fuse + renderu
-  const uiProducts = useMemo(() => {
-    try {
-      const arr = Array.isArray(productsRaw) ? productsRaw : [];
-      return arr.map(toUiProduct);
-    } catch {
-      return [];
-    }
+  // 🔄 odśwież, gdy przyszły nowe dane do wyszukiwarki
+  useEffect(() => {
+    const onUpdate = () => setVer(getSearchVersion());
+    window.addEventListener("search:dataset", onUpdate);
+    return () => window.removeEventListener("search:dataset", onUpdate);
   }, []);
 
-  // Budujemy indeks: oryginalny obiekt + pola _norm.* do Fuse
-  const fuse = useMemo(() => {
-    const indexed = uiProducts.map((p) => ({
-      ...p,
-      _norm: {
-        name: normalize(p.name),
-        description: normalize(p.description),
-        tags: Array.isArray(p.tags) ? p.tags.map(normalize) : [],
-      },
-    }));
-
-    return new Fuse(indexed, {
-      includeScore: true,
-      keys: [
-        { name: "_norm.name", weight: 0.6 },
-        { name: "_norm.description", weight: 0.25 },
-        { name: "_norm.tags", weight: 0.15 },
-      ],
-      threshold: 0.32, // węższe dopasowanie
-      ignoreLocation: true,
-      minMatchCharLength: 2, // od 2 znaków
-      shouldSort: true,
-    });
-  }, [uiProducts]);
-
-  // debounce wyszukiwania
+  // ⌛ debounce wyszukiwania (lekki, 200 ms)
   const debouncedSearch = useMemo(() => {
     let t;
     return (val) => {
       clearTimeout(t);
       t = setTimeout(() => {
-        const query = val.trim();
+        const query = (val || "").trim();
         if (query.length < 2) {
           setResults([]);
           setOpen(false);
           return;
         }
-        const qn = normalize(query);
-        const hits = fuse.search(qn);
 
-        // odfiltruj słabe trafienia i ogranicz liczbę
-        const filtered = hits
-          .filter((h) => (h.score ?? 1) <= 0.5) // im mniejszy score, tym lepiej
-          .slice(0, 5)
-          .map((h) => {
-            // Zwracamy obiekt do renderu
-            const { _norm, ...original } = h.item;
-            return original;
-          });
+        // 🔎 właściwe wyszukiwanie (Fuse pod spodem – w utils/searchUtils)
+        const hits = searchProducts(query, 8).map(toUiProduct);
 
-        setResults(filtered);
-        setOpen(filtered.length > 0);
+        setResults(hits);
+        setOpen(hits.length > 0);
       }, 200);
     };
-  }, [fuse]);
+  }, []);
 
+  // Reaguj na wpisywanie
   useEffect(() => {
     debouncedSearch(q);
-  }, [q, debouncedSearch]);
+  }, [q, debouncedSearch, ver]);
 
-  // zamykanie po kliknięciu poza dropdown
+  // Zamknij dropdown po kliknięciu poza nim
   useEffect(() => {
     const onClickOutside = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
@@ -129,11 +73,22 @@ export default function SearchBar() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  // Zamknij ESC
+  useEffect(() => {
+    const onEsc = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => document.removeEventListener("keydown", onEsc);
+  }, []);
+
+  // Enter → pełna strona wyników
   function submitFull(e) {
     e.preventDefault();
-    if (!q.trim()) return;
+    const query = q.trim();
+    if (!query) return;
     setOpen(false);
-    navigate(`/search?q=${encodeURIComponent(q.trim())}`);
+    navigate(`/search?q=${encodeURIComponent(query)}`);
   }
 
   return (
@@ -159,22 +114,28 @@ export default function SearchBar() {
       </form>
 
       {open && (
-        <div className="absolute left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gold z-[60]">
+        <div
+          className="absolute left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border border-gold z-[60]"
+          role="listbox"
+          aria-label="Podpowiedzi wyszukiwania"
+        >
           <ul className="max-h-96 overflow-y-auto py-2">
             {results.map((p) => (
-              <li key={p.slug}>
+              <li key={p.slug} role="option">
                 <Link
-                  to={`/product/${p.slug}`}
+                  to={{ pathname: `/product/${encodeURIComponent(p.slug)}` }}
+                  state={{ from: "search", q }}
+                  replace={false}
                   className="flex items-center gap-3 px-3 py-2 hover:bg-gold/15 transition"
                   onClick={() => setOpen(false)}
                 >
                   <img
-                    src={p.image}
+                    src={p.image || "/og-image.jpg"}
                     alt={p.name}
                     className="w-10 h-10 rounded-lg object-cover border border-gold"
                     loading="lazy"
                     onError={(e) => {
-                      e.currentTarget.src = "/placeholder.png";
+                      e.currentTarget.src = "/og-image.jpg";
                     }}
                   />
                   <div className="flex-1">
@@ -192,12 +153,14 @@ export default function SearchBar() {
               </li>
             ))}
           </ul>
+
           <div className="border-t border-gray-100 p-2 text-right">
             <button
               className="text-mainRed font-bold hover:text-gold transition"
               onClick={() => {
                 setOpen(false);
-                navigate(`/search?q=${encodeURIComponent(q.trim())}`);
+                const query = q.trim();
+                if (query) navigate(`/search?q=${encodeURIComponent(query)}`);
               }}
             >
               Zobacz wszystkie wyniki →

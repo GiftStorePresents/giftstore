@@ -142,6 +142,17 @@ export default function AdminPage() {
             Kupony
           </Link>
 
+          {/* NOWE: Inspiracje */}
+          <Link
+            to="/admin/inspirations"
+            className={`admin-btn px-3 py-1 ${
+              isActive("/admin/inspirations") ? "primary" : ""
+            }`}
+            title="Sekcja inspiracji na stronie"
+          >
+            Inspiracje
+          </Link>
+
           {/* NOWE: Hero */}
           <Link
             to="/admin/hero"
@@ -312,7 +323,9 @@ export default function AdminPage() {
                 setPage(p);
                 load(p);
               }}
-              className={`admin-btn ${page >= (resp.pages || 1) ? "opacity-50 cursor-not-allowed" : ""}`}
+              className={`admin-btn ${
+                page >= (resp.pages || 1) ? "opacity-50 cursor-not-allowed" : ""
+              }`}
             >
               Następna →
             </button>

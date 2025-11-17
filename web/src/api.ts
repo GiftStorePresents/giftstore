@@ -32,6 +32,17 @@ export type AdminMedia = {
   position: number;
 };
 
+/** 🔹 Rabat na wariancie (opcjonalny) */
+export type VariantDiscountFields = {
+  discountActive?: boolean;
+  salePriceCents?: number | null;
+  showDiscountPercent?: boolean;
+  /** ISO string lub null – koniec promocji */
+  discountUntil?: string | null;
+  /** Alias – jeśli backend używa innej nazwy */
+  discountEndAt?: string | null;
+};
+
 export type AdminProductListItem = {
   id: string;
   name: string;
@@ -40,7 +51,13 @@ export type AdminProductListItem = {
   createdAt: string;
   updatedAt: string;
   featured?: boolean;
-  variants: Array<{ id: string; priceCents: number; stock: number }>;
+  variants: Array<
+    {
+      id: string;
+      priceCents: number;
+      stock: number;
+    } & VariantDiscountFields
+  >;
   media?: AdminMedia[];
 };
 
@@ -365,7 +382,10 @@ function toApiError(e: any): ApiError {
 }
 
 /** fetch z domyślnym timeoutem 20s */
-async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit & { timeoutMs?: number }) {
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit & { timeoutMs?: number }
+) {
   const timeoutMs = init?.timeoutMs ?? 20_000;
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
@@ -377,7 +397,10 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit & {
 }
 
 /** Kopia request() z timeoutem (używana przez requestSafe) */
-async function requestWithTimeout<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+async function requestWithTimeout<T>(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number }
+): Promise<T> {
   const headers = new Headers(init?.headers as HeadersInit | undefined);
 
   if (isUnsafeMethod(init?.method)) {
@@ -698,7 +721,8 @@ export const api = {
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            "X-CSRF-Token": getCookie(CSRF_COOKIE_NAME) || getCookie("XSRF-TOKEN") || "",
+            "X-CSRF-Token":
+              getCookie(CSRF_COOKIE_NAME) || getCookie("XSRF-TOKEN") || "",
           },
           body: JSON.stringify(payload),
         });
@@ -736,7 +760,9 @@ export const api = {
             ok: true,
             id: String(id),
             number: String(number),
-            status: (data?.order?.status || data?.status) as OrderStatus | undefined,
+            status: (data?.order?.status || data?.status) as
+              | OrderStatus
+              | undefined,
             totalCents:
               (data?.order?.totalCents as number) ??
               (data?.totalCents as number) ??
@@ -767,7 +793,9 @@ export const api = {
         }>(`/api/my/orders`),
 
       get: (id: string) =>
-        request<{ order: AdminOrderView }>(`/api/my/orders/${encodeURIComponent(id)}`),
+        request<{ order: AdminOrderView }>(
+          `/api/my/orders/${encodeURIComponent(id)}`
+        ),
     },
   },
 
@@ -874,7 +902,9 @@ export const api = {
 
     // === GET /api/admin/products/:id ===
     productById: (id: string) =>
-      request<{ product: AdminProductFull } | AdminProductFull>(`/api/admin/products/${id}`),
+      request<{ product: AdminProductFull } | AdminProductFull>(
+        `/api/admin/products/${id}`
+      ),
 
     // === PATCH /api/admin/products/:id (edycja) ===
     updateProduct: (
@@ -907,11 +937,14 @@ export const api = {
     // === BULK DELETE: DELETE /api/admin/products (soft/hard) ===
     deleteProductsBulk: async (ids: string[], opts?: { hard?: boolean }) => {
       await ensureCsrf();
-      return request<{ ok: true; hard: boolean; count: number }>(`/api/admin/products`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, force: !!opts?.hard }),
-      });
+      return request<{ ok: true; hard: boolean; count: number }>(
+        `/api/admin/products`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids, force: !!opts?.hard }),
+        }
+      );
     },
 
     /** Utworzenie nowego produktu (z jednym wariantem) */
@@ -929,14 +962,14 @@ export const api = {
         color?: string | null;
         size?: string | null;
         personalize?: boolean;
-      };
+      } & VariantDiscountFields;
     }) =>
       request<{ product: any }>(`/api/admin/products`, {
         method: "POST",
         body: JSON.stringify(payload),
       }),
 
-    /** Zapis wariantu – PATCH /api/admin/variants/:variantId */
+    /** Aktualizacja wariantu (PATCH) – ze zniżkami */
     updateVariant: (
       variantId: string,
       payload: {
@@ -946,12 +979,15 @@ export const api = {
         color?: string | null;
         size?: string | null;
         personalize?: boolean;
-      }
+      } & VariantDiscountFields
     ) =>
-      request<{ variant: any }>(`/api/admin/variants/${variantId}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      }),
+      request<{ variant: any }>(
+        `/api/admin/variants/${variantId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        }
+      ),
 
     /**
      * Upload obrazka (FormData)
@@ -962,23 +998,26 @@ export const api = {
         fd.append(field, file);
         return fd;
       };
-      const primary = `/api/admin/products/${encodeURIComponent(productId)}/upload-image`;
+      const primary = `/api/admin/products/${encodeURIComponent(
+        productId
+      )}/upload-image`;
       const alt = `/api/admin/products/${encodeURIComponent(productId)}/images`;
 
-      const out = await requestFormWithFallbacks<{ media: AdminMedia } | { ok: true; media: AdminMedia }>(
-        primary,
-        alt,
-        buildForm,
-        "POST"
-      );
+      const out =
+        await requestFormWithFallbacks<
+          { media: AdminMedia } | { ok: true; media: AdminMedia }
+        >(primary, alt, buildForm, "POST");
       return ("media" in out ? out.media : (out as any).media) as AdminMedia;
     },
 
     /** Usunięcie obrazka */
     deleteProductImage: (mediaId: string) =>
-      request<{ ok: true }>(`/api/admin/media/${encodeURIComponent(mediaId)}`, {
-        method: "DELETE",
-      }),
+      request<{ ok: true }>(
+        `/api/admin/media/${encodeURIComponent(mediaId)}`,
+        {
+          method: "DELETE",
+        }
+      ),
 
     /**
      * Seed popularnych produktów – POST { mode } (insert|upsert|create->insert)
@@ -991,16 +1030,18 @@ export const api = {
         createdCount?: number;
         updatedCount?: number;
         created?: Array<{ id: string; slug: string }>;
-        ok?: boolean; // backend może dodać
+        ok?: boolean;
       };
       await ensureCsrf();
       const realMode = mode === "create" ? "insert" : mode || "insert";
-      const res = await requestSafe<SeedPopularResponse>(`/api/admin/seed/popular`, {
-        method: "POST",
-        body: JSON.stringify({ mode: realMode }),
-        // podniesiony timeout — pierwsze seedowanie może pobierać obrazki
-        timeoutMs: 60_000,
-      });
+      const res = await requestSafe<SeedPopularResponse>(
+        `/api/admin/seed/popular`,
+        {
+          method: "POST",
+          body: JSON.stringify({ mode: realMode }),
+          timeoutMs: 60_000,
+        }
+      );
       return res;
     },
 
@@ -1010,7 +1051,7 @@ export const api = {
         updatedCount?: number;
         created?: Array<{ id: string; slug: string }>;
       };
-      await ensureCsrf(); // ⬅⬅⬅ KLUCZOWE
+      await ensureCsrf();
       const realMode = mode === "create" ? "insert" : mode || "insert";
       return request<SeedPopularResponse>(`/api/admin/seed/popular`, {
         method: "POST",
@@ -1030,8 +1071,10 @@ export const api = {
         p.set("page", String(opts?.page ?? 1));
         p.set("limit", String(opts?.limit ?? 20));
         if (opts?.q) p.set("q", opts.q);
-        if (opts?.status) p.set("status", opts.status);
-        return request<AdminOrdersListResponse>(`/api/admin/orders?${p.toString()}`);
+        if (opts?.status) p.set("status", opts?.status);
+        return request<AdminOrdersListResponse>(
+          `/api/admin/orders?${p.toString()}`
+        );
       },
 
       get: (orderId: string) =>

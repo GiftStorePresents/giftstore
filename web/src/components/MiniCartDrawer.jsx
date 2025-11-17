@@ -1,6 +1,6 @@
 // src/components/MiniCartDrawer.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { X, Truck, Package, MapPin, Zap, Hand } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
@@ -20,17 +20,38 @@ const BASE_URL =
   SITE_ORIGIN;
 
 function resolveImg(src) {
-  if (!src) return "/placeholder.png";
+  if (!src) return "/og-image.jpg"; // ⬅️ domyślnie kierujemy na og-image.jpg
   if (/^(https?:)?\/\//i.test(src) || src.startsWith("data:")) return src;
   const base = String(BASE_URL || "").replace(/\/+$/, "");
   const path = src.startsWith("/") ? src : `/${src}`;
   return `${base}${path}`;
 }
+
+/* ⬇️ FALLBACKI OBRAZKA (bez-plikowy SVG na koniec) */
+const FALLBACK_IMG =
+  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="112" height="112" viewBox="0 0 112 112"><rect width="112" height="112" rx="12" fill="%23f1f5f9"/><path d="M20 74l16-16 12 12 20-20 24 24v12H20z" fill="%23cbd5e1"/><circle cx="38" cy="38" r="10" fill="%23e2e8f0"/></svg>';
+const FALLBACK_SRC = resolveImg("/og-image.jpg"); // ⬅️ preferowany fallback z public/
+
+/* formatowanie ceny */
 const fmt = (n) =>
   (Math.round(Number(n) * 100) / 100).toLocaleString("pl-PL", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+/* --- zbuduj krótką wiadomość do toasta po syncu --- */
+function buildToastMsg(res) {
+  if (!res) return "";
+  const parts = [];
+  if (Array.isArray(res.removed) && res.removed.length) {
+    parts.push(`Usunięto: ${res.removed.join(", ")}`);
+  }
+  if (Array.isArray(res.adjusted) && res.adjusted.length) {
+    const list = res.adjusted.map((a) => `${a.slug}: ${a.from}→${a.to}`).join(", ");
+    parts.push(`Dostosowano ilości (${list})`);
+  }
+  return parts.join(" • ") || "Zaktualizowano koszyk wg dostępności";
+}
 
 /* mini UI */
 function SectionTitle({ icon: Icon, children }) {
@@ -70,6 +91,7 @@ function Pill({ children }) {
 }
 
 export default function MiniCartDrawer({ open, onClose, setToast }) {
+  const navigate = useNavigate();
   const {
     cart, updateQuantity, removeFromCart, clearCart,
     drawerOpen, closeDrawer,
@@ -77,10 +99,13 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
     discountCode, setDiscountCode, applyCoupon, appliedCoupon, clearCoupon,
     shipping, setShippingMethod, setShippingCarrier,
     paymentMethod, setPaymentMethod,
+    /* NEW: helper do weryfikacji stanów */
+    syncCartWithStock, // NEW
   } = useCart();
   const { user } = useAuth();
 
   const [applying, setApplying] = useState(false);
+  const [syncing, setSyncing] = useState(false); // NEW: guard stanu przy przycisku „Do kasy”
   const isOpen = typeof open === "boolean" ? open : !!drawerOpen;
 
   const drawerRef = useRef(null);
@@ -130,7 +155,38 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
     return () => { document.body.style.overflow = prevOverflow; document.removeEventListener("keydown", onKey); };
   }, [isOpen]);
 
-  /* opcje wysyłki */
+  /* =======================
+   * NEW: SYNC PRZY OTWARCIU
+   * ======================= */
+  useEffect(() => {
+    (async () => {
+      if (!isOpen || typeof syncCartWithStock !== "function" || !cart.length) return;
+      const res = await syncCartWithStock();
+      if (res?.changed && typeof setToast === "function") {
+        setToast(buildToastMsg(res));
+      }
+    })();
+    // tylko przy otwieraniu
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  /* ========================================
+   * NEW: AUTOPOLLING tylko gdy drawer otwarty
+   * ======================================== */
+  useEffect(() => {
+    if (!isOpen || typeof syncCartWithStock !== "function" || !cart.length) return;
+    let stop = false;
+    const id = setInterval(async () => {
+      if (stop) return;
+      const res = await syncCartWithStock();
+      if (res?.changed && typeof setToast === "function") {
+        setToast(buildToastMsg(res));
+      }
+    }, 15000); // 15 s
+    return () => { stop = true; clearInterval(id); };
+  }, [isOpen, cart.length, syncCartWithStock, setToast]);
+
+  /* opcje wysyłki (Twoje wartości/styl zostawione jak były) */
   const courierOptions = [
     ["dpd", "DPD", SHIPPING_COSTS.courier.dpd],
     ["dhl", "DHL", SHIPPING_COSTS.courier.dhl],
@@ -210,11 +266,16 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
               {cart.map((item) => (
                 <div key={item.slug} className="flex gap-3 items-center">
                   <img
-                    src={resolveImg(item.image)}
+                    src={item.image ? resolveImg(item.image) : FALLBACK_SRC}
                     alt={item.name}
                     className="w-14 h-14 rounded-lg object-cover ring-1 ring-black/5 dark:ring-white/10"
                     loading="lazy"
-                    onError={(e) => { e.currentTarget.src = "/placeholder.png"; }}
+                    decoding="async"
+                    onError={(e) => {
+                      // ⬇️ unikamy pętli: zdejmujemy handler i dajemy bez-plikowy SVG
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = FALLBACK_IMG;
+                    }}
                   />
                   <div className="flex-1">
                     <div className="font-semibold text-mainRed leading-tight text-[14px]">{item.name}</div>
@@ -257,7 +318,7 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
                   onChange={(e) => setDiscountCode(e.target.value.toUpperCase())}
                   placeholder="Kod rabatowy"
                   aria-label="Kod rabatowy"
-                  className="flex-1 px-3 py-2 rounded-xl bg-white placeholder-gray-400 outline-none border border-gray-300 focus:border-mainRed focus:ring-0 shadow-none dark:bg-white/10 dark:border-white/20 dark:placeholder-gray-400"
+                  className="flex-1 px-3 py-2 rounded-xl bg-white placeholder-gray-400 outline-none border border-gray-300 focus:border-mainRed focus:ring-0 shadow-none dark:bg:white/10 dark:border-white/20 dark:placeholder-gray-400"
                 />
                 <button
                   disabled={applying}
@@ -396,41 +457,7 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
               </div>
             </div>
 
-            {/* Płatność – większy odstęp u góry */}
-            <div className="px-5 pb-6 mt-4 pt-5 border-t border-black/10 dark:border-white/10">
-              <SectionTitle>Płatność</SectionTitle>
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                {[
-                  ["online", "Przelew online / karta"],
-                  ["blik", "BLIK"],
-                  ["cod", "Za pobraniem (+5 zł)"],
-                  ["crypto", "Krypto (USDT/BTC)"],   // <= NOWA OPCJA
-                ].map(([key, label]) => {
-                  const active = payMethod === key;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setPayMethod(key)}
-                      className={[
-                        "px-3 py-2 rounded-xl text-[13px] transition border",
-                        active
-                          ? "border-mainRed bg-mainRed/10 text-mainRed font-semibold"
-                          : "border-gray-300 hover:border-mainRed/60 hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/10",
-                      ].join(" ")}
-                      aria-pressed={active}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* mały bufor nad sticky stopką */}
-            <div className="h-4" />
-
-            {/* Podsumowanie */}
+            {/* Podsumowanie / sticky bottom */}
             <div className="p-5 border-t border-black/10 dark:border-white/10 bg-inherit sticky bottom-0">
               <div className="flex justify-between text-sm text-gray-700 dark:text-gray-200">
                 <span>Produkty</span><span>{fmt(subtotal)} zł</span>
@@ -454,6 +481,8 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
                 >
                   Wyczyść
                 </button>
+
+                {/*
                 <Link
                   to="/cart"
                   onClick={handleClose}
@@ -461,14 +490,35 @@ export default function MiniCartDrawer({ open, onClose, setToast }) {
                 >
                   Przejdź do koszyka
                 </Link>
-                <Link
-                  to={{ pathname: "/checkout" }}
-                  onClick={handleClose}
-                  className="checkout-btn flex-1 flex items-center justify-center bg-gold !text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-mainRed hover:text-gold transition"
+                */}
+
+                {/* NEW: kontrola przejścia do checkoutu z natychmiastowym sync */}
+                <button
+                  type="button"
+                  disabled={syncing}
+                  onClick={async () => {
+                    if (typeof syncCartWithStock !== "function") {
+                      handleClose();
+                      navigate("/checkout");
+                      return;
+                    }
+                    setSyncing(true);
+                    const res = await syncCartWithStock();
+                    setSyncing(false);
+                    if (res?.changed) {
+                      setToast && setToast(buildToastMsg(res));
+                      // zostań w koszyku – użytkownik musi zaakceptować zmiany
+                      return;
+                    }
+                    handleClose();
+                    navigate("/checkout");
+                  }}
+                  className="checkout-btn flex-1 flex items-center justify-center bg-gold !text-mainRed font-bold px-4 py-2 rounded-xl hover:bg-mainRed hover:text-gold transition disabled:opacity-60"
                   aria-label="Przejdź do kasy"
+                  title={syncing ? "Sprawdzanie dostępności…" : "Przejdź do kasy"}
                 >
-                  Do kasy
-                </Link>
+                  {syncing ? "Sprawdzam…" : "Do kasy"}
+                </button>
               </div>
             </div>
           </>

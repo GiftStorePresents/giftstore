@@ -83,12 +83,12 @@ router.post("/session", async (req: Request, res: Response) => {
       });
     }
 
-    // >>> ZMIANA: kierujemy na /thank-you i /cart <<<
+    // >>> ZMIANA: kierujemy na /thank-you i /checkout <<<
     const numberOrId = order.number || order.id;
     const successUrl = `${APP_URL}/thank-you?orderId=${encodeURIComponent(
       numberOrId
     )}`;
-    const cancelUrl = `${APP_URL}/cart?payment=canceled=1&order=${encodeURIComponent(
+    const cancelUrl = `${APP_URL}/checkout?payment=canceled=1&order=${encodeURIComponent(
       numberOrId
     )}`;
 

@@ -918,3 +918,256 @@ html.dark .orders-wrap h1 {
 button[aria-label="Wróć na górę"]:hover {
   animation: goldPulse 1.8s infinite ease-in-out;
 }*/
+
+/* === Countdown background overlays =============================== */
+.countdown-section { position: relative; overflow: hidden; }
+.countdown-section .countdown-bg{
+  position:absolute; inset:-1px; border-radius:inherit; z-index:-1;
+  /* LIGHT: subtelne złoto -> czerwony (jaśniej po prawej) */
+  background: linear-gradient(90deg,
+    rgba(255,215,0,.18) 0%,
+    rgba(255,215,0,.12) 38%,
+    rgba(215,38,61,.10) 100%
+  );
+}
+
+/* DARK: rozjaśnione, wyraźniej czerwone na prawej stronie */
+:root[data-theme="dark"] .countdown-section .countdown-bg,
+html.dark .countdown-section .countdown-bg{
+  background: linear-gradient(90deg,
+    rgba(255,215,0,.10) 0%,
+    rgba(255,215,0,.14) 44%,
+    rgba(235,64,84,.38) 100%
+  );
+  filter: brightness(1.15);
+}
+
+/* === Countdown tiles (Gift Store) ================================= */
+.countdown-tile{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  background: rgba(255,255,255,.82);
+  border:1px solid rgba(255,215,0,.35);
+  border-radius:18px;
+  padding:.75rem .9rem;
+  min-width:84px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.08);
+}
+
+:root[data-theme="dark"] .countdown-tile,
+html.dark .countdown-tile{
+  background: rgba(255,255,255,.08);
+  border:1px solid rgba(235,64,84,.35);
+  box-shadow: 0 12px 34px rgba(0,0,0,.35);
+}
+
+.countdown-value{
+  font-weight:800;
+  font-size: clamp(1.35rem, 2.5vw, 1.8rem);
+  line-height:1;
+  color: var(--mainRed);
+  text-shadow: 0 1px 0 rgba(0,0,0,.08);
+}
+
+.countdown-label{
+  margin-top:.25rem;
+  font-size:.8rem;
+  font-weight:700;
+  letter-spacing:.02em;
+  color:#374151;
+}
+:root[data-theme="dark"] .countdown-label,
+html.dark .countdown-label{ color: var(--muted); }
+
+/* delikatny “pulse” na sekundach */
+@keyframes cdPulse { 0%,100%{ transform: translateY(0) } 50%{ transform: translateY(-1px) } }
+.countdown-pulse { animation: cdPulse .9s ease-in-out infinite; }
+
+/* === Countdown tiles (dark mode – szklane i jasne) ==================== */
+:root[data-theme="dark"] .countdown-tile,
+html.dark .countdown-tile {
+  background: rgba(255, 255, 255, 0.08); /* półprzezroczysty biały */
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.45),
+    inset 0 0 10px rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px) saturate(180%);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* subtelny hover – lekko jaśniejsze */
+:root[data-theme="dark"] .countdown-tile:hover,
+html.dark .countdown-tile:hover {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 6px 22px rgba(255, 255, 255, 0.08),
+    inset 0 0 12px rgba(255, 255, 255, 0.15);
+}
+
+/* tekst w dark mode: lekko przydymiony, ale nadal kontrastowy */
+:root[data-theme="dark"] .countdown-label,
+html.dark .countdown-label {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+:root[data-theme="dark"] .countdown-value,
+html.dark .countdown-value {
+  color: var(--gold);
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.25);
+}
+
+/* =============== PaymentPicker (DARK) – czerwone/wiśniowe podpisy =============== */
+:root[data-theme="dark"] #pmx,
+html.dark #pmx{
+  /* Twój jasny bordo do podpisów */
+  --pm-accent: #bb2b3b; /* możesz zmienić np. na #c23645 albo #d04b5b */
+}
+
+/* Trafiamy we wszystkie typowe „szare” utility Tailwinda używane w podpisach */
+:root[data-theme="dark"] #pmx :is(
+  .text-gray-400, .text-gray-500, .text-gray-600,
+  .text-slate-400, .text-slate-500, .text-slate-600,
+  .text-neutral-400, .text-neutral-500, .text-neutral-600,
+  .subtitle, .pm-sub, .pm-desc, small, .muted, .text-muted
+){
+  color: var(--pm-accent) !important;
+}
+
+/* Gdy komponent przygasa podpisy przez opacity — wyłączamy to w dark mode */
+:root[data-theme="dark"] #pmx :is(.opacity-50, .opacity-60, .opacity-70){
+  opacity: 1 !important;
+}
+
+/* Ikony/SVG w podpisach też na bordo (działa przez currentColor) */
+:root[data-theme="dark"] #pmx :is(svg, svg *){
+  color: var(--pm-accent) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+/* Jeżeli kafelek ma wewnętrzne „badge”/„foot” z opisem – też je przemaluj */
+:root[data-theme="dark"] #pmx :is(.badge, .pm-badge, .pm-foot){
+  color: var(--pm-accent) !important;
+}
+
+/* =========================================================
+   PAYMENT PICKER — DARK MODE
+   Kolory:
+   - tytuły metod: bordo (#d54c5d)
+   - opisy / subteksty: złoty (#FFD700)
+   - komunikaty: czerwony (#d54c5d)
+   ========================================================= */
+
+:root[data-theme="dark"] #pmx,
+html.dark #pmx {
+  --pm-accent: #d54c5d; /* bordo */
+  --pm-gold: #FFD700;   /* złoty */
+}
+
+/* 🎯 Główne tytuły metod (np. "Przelewy24", "BLIK", "Kryptowaluty") */
+:root[data-theme="dark"] #pmx :is(
+  .truncate,
+  .text-gray-700, .text-gray-800, .text-gray-900,
+  .text-slate-700, .text-slate-800, .text-slate-900
+),
+html.dark #pmx :is(
+  .truncate,
+  .text-gray-700, .text-gray-800, .text-gray-900,
+  .text-slate-700, .text-slate-800, .text-slate-900
+) {
+  color: var(--pm-accent) !important;
+}
+
+/* ✨ Opisy / subteksty (np. "Szybkie przelewy", "Visa, Mastercard") */
+:root[data-theme="dark"] #pmx :is(
+  .text-xs,
+  .pm-sub,
+  .pm-desc,
+  .text-gray-400, .text-gray-500, .text-gray-600,
+  .text-slate-400, .text-slate-500, .text-slate-600,
+  .text-neutral-400, .text-neutral-500, .text-neutral-600
+),
+html.dark #pmx :is(
+  .text-xs,
+  .pm-sub,
+  .pm-desc,
+  .text-gray-400, .text-gray-500, .text-gray-600,
+  .text-slate-400, .text-slate-500, .text-slate-600,
+  .text-neutral-400, .text-neutral-500, .text-neutral-600
+) {
+  color: var(--pm-gold) !important;
+}
+
+/* 🔥 Hover — tytuły zmieniają się na złoto dla efektu interakcji */
+:root[data-theme="dark"] #pmx [role="button"]:hover :is(.truncate, .text-lg, .text-base),
+html.dark #pmx [role="button"]:hover :is(.truncate, .text-lg, .text-base) {
+  color: var(--pm-gold) !important;
+}
+
+/* 🩸 Ikony, badge i SVG — bordo */
+:root[data-theme="dark"] #pmx :is(svg, svg *, .badge, .pm-badge, .pm-foot),
+html.dark #pmx :is(svg, svg *, .badge, .pm-badge, .pm-foot) {
+  color: var(--pm-accent) !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+/* 🔒 Wyłączanie opacity wygaszeń */
+:root[data-theme="dark"] #pmx :is(.opacity-50, .opacity-60, .opacity-70),
+html.dark #pmx :is(.opacity-50, .opacity-60, .opacity-70) {
+  opacity: 1 !important;
+}
+
+/* 🔐 DARK MODE — komunikat o szyfrowaniu (na czerwono / bordo) */
+:root[data-theme="dark"] #pmx p.text-\[11px\],
+html.dark #pmx p.text-\[11px\],
+:root[data-theme="dark"] #pmx p[class*="text-\[11px\]"],
+html.dark #pmx p[class*="text-\[11px\]"] {
+  color: #d54c5d !important; /* lub np. #e94d5b jeśli chcesz bardziej żywy */
+}
+
+/* =========================================================
+   RADIO (input[type="radio"]) — usuń szary border/outlines
+   ========================================================= */
+
+/* 🩸 Wyłącz defaultową ramkę (outline) i box-shadow */
+#pmx input[type="radio"] {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* 🩸 Po focus (kliknięciu / tab) — brak szarego halo */
+#pmx input[type="radio"]:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* 💖 Aktywny / zaznaczony radio – zachowuje różowy kolor */
+#pmx input[type="radio"]:checked {
+  accent-color: #e74c5b; /* Twój różowo-bordowy styl (możesz zmienić) */
+}
+
+/* Czerwony/ bordo dla ikony (dwa kółka) w obu trybach */
+#pmx svg[viewBox="0 0 48 24"],
+#pmx svg[viewBox="0 0 48 24"] * {
+  color: #d54c5d !important;
+  fill: currentColor !important;   /* wypełnienie bierze color */
+  stroke: currentColor !important; /* na wypadek wariantów ze stroke */
+}
+
+/* Jeśli ikona ma klasy h-3 w-6 (dodatkowe doprecyzowanie) */
+#pmx svg.h-3.w-6,
+#pmx svg.h-3.w-6 * {
+  color: #d54c5d !important;
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+@keyframes promo-marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.promo-marquee {
+  animation: promo-marquee 9s linear infinite;
+}

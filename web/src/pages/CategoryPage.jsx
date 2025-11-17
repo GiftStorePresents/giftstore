@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import FiltersDrawer from "../components/FiltersDrawer";
 import SeoHead from "../components/SeoHead";
-import LoadMoreGrid from "../components/LoadMoreGrid"; // ✅ bez .jsx
+import LoadMoreGrid from "../components/LoadMoreGrid";
 import Breadcrumbs from "../components/Breadcrumbs";
 import { env } from "../env";
 import { useApiProducts } from "../hooks/useApiProducts";
@@ -34,7 +34,11 @@ export default function CategoryPage({ setToast }) {
     category: categoryParam,
   });
 
-  const mapped = useMemo(() => items.map(mapApiProductToCard), [items]);
+  // Mapowanie do jednolitego modelu karty (filtrowanie nulli na wypadek błędnych rekordów)
+  const mapped = useMemo(
+    () => (Array.isArray(items) ? items.map(mapApiProductToCard).filter(Boolean) : []),
+    [items]
+  );
 
   const [filters, setFilters] = useState({
     minPrice: "",
@@ -109,6 +113,13 @@ export default function CategoryPage({ setToast }) {
     }
     return arr;
   }, [filteredProducts, filters.sort]);
+
+  // 🔍 Debug: udostępnij w konsoli aktualną listę po mapowaniu/filtrach/sortowaniu
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.__LAST_PRODUCTS__ = sortedProducts;
+    }
+  }, [sortedProducts]);
 
   // 4) ItemList (lista produktów na stronie kategorii)
   const itemListJsonLd = useMemo(
@@ -197,7 +208,6 @@ export default function CategoryPage({ setToast }) {
         <LoadMoreGrid
           products={sortedProducts}
           setToast={setToast}
-          // LoadMoreGrid ma wewnątrz grid: 1/2/3/4 kolumny responsywnie
         />
       )}
     </section>
