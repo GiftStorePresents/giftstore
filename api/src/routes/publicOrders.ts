@@ -1,4 +1,4 @@
-// src/routes/publicOrders.ts
+// api/src/routes/publicOrders.ts
 import { Router, type Request, type Response } from "express";
 import { prisma } from "../lib/prisma";
 import { ok, fail } from "../lib/http";
@@ -79,7 +79,7 @@ router.post("/", async (req: Request, res: Response) => {
       priceCents: number;        // wymagane przez schema
       sku: string | null;        // snapshot SKU (null, nie undefined)
       name: string;              // snapshot nazwy produktu
-      category: string | null;   // snapshot kategorii
+      category: string | null;   // snapshot kategorii (np. slug)
       productId: string | null;
       variantId: string | null;
       slug?: string | null;      // tylko do e-maila (opcjonalnie)
@@ -91,39 +91,59 @@ router.post("/", async (req: Request, res: Response) => {
       const qty = Math.max(1, Number(it.qty || 0));
       if (!qty) continue;
 
+      // 🔹 ŚCIEŻKA: variantId
       if ("variantId" in it && it.variantId) {
         const variant = await prisma.variant.findUnique({
           where: { id: it.variantId },
-          include: { Product: true },
+          include: {
+            // ✅ nowa nazwa relacji: product + category
+            product: {
+              include: {
+                category: true,
+              },
+            },
+          },
         });
-        if (!variant || !variant.Product) {
+
+        if (!variant || !variant.product) {
           return fail(res, 400, `Variant not found: ${it.variantId}`);
         }
-        resolved.push({
-          qty,
-          priceCents: variant.priceCents,
-          sku: variant.sku ?? null,
-          name: variant.Product.name,
-          category: variant.Product.category ?? null,
-          productId: variant.productId,
-          variantId: variant.id,
-          slug: variant.Product.slug ?? null,
-        });
-      } else if ("slug" in it && it.slug) {
-        const product = await prisma.product.findUnique({
-          where: { slug: it.slug },
-          include: { variants: { orderBy: { priceCents: "asc" } } },
-        });
-        if (!product) return fail(res, 400, `Product not found: ${it.slug}`);
-        const variant = product.variants[0];
-        if (!variant) return fail(res, 400, `No variant for product: ${it.slug}`);
+
+        const product = variant.product;
+        const categorySlug = product.category ? product.category.slug : null;
 
         resolved.push({
           qty,
           priceCents: variant.priceCents,
           sku: variant.sku ?? null,
           name: product.name,
-          category: product.category ?? null,
+          category: categorySlug, // snapshot kategorii (slug)
+          productId: product.id,
+          variantId: variant.id,
+          slug: product.slug ?? null,
+        });
+      }
+      // 🔹 ŚCIEŻKA: slug produktu
+      else if ("slug" in it && it.slug) {
+        const product = await prisma.product.findUnique({
+          where: { slug: it.slug },
+          include: {
+            variants: { orderBy: { priceCents: "asc" } },
+            category: true, // ✅ potrzebne, żeby mieć product.category
+          },
+        });
+        if (!product) return fail(res, 400, `Product not found: ${it.slug}`);
+        const variant = product.variants[0];
+        if (!variant) return fail(res, 400, `No variant for product: ${it.slug}`);
+
+        const categorySlug = product.category ? product.category.slug : null;
+
+        resolved.push({
+          qty,
+          priceCents: variant.priceCents,
+          sku: variant.sku ?? null,
+          name: product.name,
+          category: categorySlug,
           productId: product.id,
           variantId: variant.id,
           slug: product.slug ?? null,
@@ -168,7 +188,12 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (invoiceRequested) {
       // Minimalna walidacja – tak jak na froncie
-      if (!body?.invoiceCompanyName || !body?.invoiceAddr1 || !body?.invoiceCity || !body?.invoiceZip) {
+      if (
+        !body?.invoiceCompanyName ||
+        !body?.invoiceAddr1 ||
+        !body?.invoiceCity ||
+        !body?.invoiceZip
+      ) {
         return fail(res, 400, "Missing required invoice fields");
       }
     }
@@ -207,13 +232,13 @@ router.post("/", async (req: Request, res: Response) => {
         // pozycje (snapshot)
         items: {
           create: resolved.map((r) => ({
-            name: r.name,                 // snapshot – wymagane w schema
-            sku: r.sku ?? null,           // null zamiast undefined
-            category: r.category,         // snapshot kategorii
+            name: r.name,             // snapshot – wymagane w schema
+            sku: r.sku ?? null,       // null zamiast undefined
+            category: r.category,     // snapshot kategorii (slug)
             qty: r.qty,
-            priceCents: r.priceCents,     // wymagane w schema
-            productId: r.productId,       // mogą być null
-            variantId: r.variantId,       // mogą być null
+            priceCents: r.priceCents, // wymagane w schema
+            productId: r.productId,   // mogą być null
+            variantId: r.variantId,   // mogą być null
           })),
         },
       },
@@ -227,7 +252,9 @@ router.post("/", async (req: Request, res: Response) => {
         const cat = r.category ? `, ${r.category}` : "";
         const sku = r.sku ? ` <small>[${r.sku}]</small>` : "";
         const slug = r.slug ? ` /${r.slug}` : "";
-        return `<li>${r.name}${cat}${sku}${slug} × ${r.qty} — ${lineTotal.toFixed(2)} zł</li>`;
+        return `<li>${r.name}${cat}${sku}${slug} × ${r.qty} — ${lineTotal.toFixed(
+          2
+        )} zł</li>`;
       })
       .join("");
 
@@ -236,7 +263,11 @@ router.post("/", async (req: Request, res: Response) => {
       <ul>${listHtml}</ul>
       <p><b>Suma:</b> ${(totalCents / 100).toFixed(2)} zł</p>
       <p>Dostawa: ${shippingName}, ${shippingAddr1}, ${shippingZip} ${shippingCity}</p>
-      ${invoiceRequested ? `<p>✅ Poprosiłeś o fakturę – wyślemy ją po zaksięgowaniu płatności.</p>` : ""}
+      ${
+        invoiceRequested
+          ? `<p>✅ Poprosiłeś o fakturę – wyślemy ją po zaksięgowaniu płatności.</p>`
+          : ""
+      }
     `;
 
     try {

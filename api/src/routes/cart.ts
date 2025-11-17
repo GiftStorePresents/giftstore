@@ -1,4 +1,4 @@
-// src/routes/cart.ts
+// api/src/routes/cart.ts
 import { Router, type Request, type Response } from "express";
 import { prisma } from "../lib/prisma";
 import { calcTotals, FREE_SHIPPING_THRESHOLD_CENTS } from "../lib/totals";
@@ -38,10 +38,13 @@ async function getOrCreateCart(req: Request, res: Response) {
     include: {
       items: {
         include: {
-          Variant: {
+          // ✅ nowa relacja: variant → product → media
+          variant: {
             include: {
-              Product: {
-                include: { media: { orderBy: { position: "asc" } } },
+              product: {
+                include: {
+                  media: { orderBy: { position: "asc" } },
+                },
               },
             },
           },
@@ -55,15 +58,18 @@ async function getOrCreateCart(req: Request, res: Response) {
   if (!c) {
     const created = await prisma.cart.create({ data: {} });
     res.cookie(CART_COOKIE, created.id, COOKIE_OPTS);
+
     c = await prisma.cart.findUnique({
       where: { id: created.id },
       include: {
         items: {
           include: {
-            Variant: {
+            variant: {
               include: {
-                Product: {
-                  include: { media: { orderBy: { position: "asc" } } },
+                product: {
+                  include: {
+                    media: { orderBy: { position: "asc" } },
+                  },
                 },
               },
             },
@@ -82,19 +88,19 @@ function shape(cart: any) {
   return {
     id: cart.id,
     items: (cart.items || []).map((it: any) => {
-      const img = normalizeImage(it?.Variant?.Product?.media?.[0]?.url);
+      const img = normalizeImage(it?.variant?.product?.media?.[0]?.url);
       return {
         id: it.id,
         variantId: it.variantId,
         qty: it.qty,
-        priceCents: it.Variant?.priceCents ?? 0,
-        sku: it.Variant?.sku ?? "",
-        color: it.Variant?.color ?? null,
-        size: it.Variant?.size ?? null,
+        priceCents: it.variant?.priceCents ?? 0,
+        sku: it.variant?.sku ?? "",
+        color: it.variant?.color ?? null,
+        size: it.variant?.size ?? null,
         product: {
-          id: it.Variant?.productId ?? "",
-          name: it.Variant?.Product?.name ?? "",
-          slug: it.Variant?.Product?.slug ?? "",
+          id: it.variant?.productId ?? "",
+          name: it.variant?.product?.name ?? "",
+          slug: it.variant?.product?.slug ?? "",
           image: img,
         },
       };

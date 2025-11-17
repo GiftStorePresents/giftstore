@@ -8,6 +8,7 @@ async function upsertProduct(
   opts?: {
     description?: string;
     brand?: string | null;
+    // tutaj nadal przyjmujemy "category" jako SLUG kategorii
     category?: string;
     stock?: number;
   }
@@ -15,10 +16,13 @@ async function upsertProduct(
   const description =
     opts?.description ?? `${name} — przykładowy opis produktu do seeda.`;
   const brand = opts?.brand ?? "Demo";
-  const category = opts?.category ?? "demo";
-  const stock = typeof opts?.stock === "number" ? opts!.stock : 10;
+  // traktujemy to jako slug kategorii
+  const categorySlug = opts?.category ?? "demo";
+  const stock = typeof opts?.stock === "number" ? opts.stock : 10;
 
+  // szukamy produktu po slug
   let p = await prisma.product.findUnique({ where: { slug } as any });
+
   if (!p) {
     p = await prisma.product.create({
       data: {
@@ -26,7 +30,10 @@ async function upsertProduct(
         name,
         description,
         brand,
-        category,
+        // ✅ KLUCZOWA ZMIANA: relacja zamiast stringa
+        category: {
+          connect: { slug: categorySlug },
+        },
         variants: {
           create: {
             sku: `${slug}-SKU`,
@@ -41,6 +48,7 @@ async function upsertProduct(
   } else {
     console.log(`[seedSample] Istnieje: ${slug}`);
   }
+
   return p;
 }
 
@@ -49,17 +57,22 @@ async function main() {
     description:
       "Kubek dla Taty — idealny prezent na Dzień Ojca lub urodziny.",
     brand: "GiftStore",
-    category: "dla-taty",
+    category: "dla-taty", // slug kategorii
     stock: 25,
   });
 
-  await upsertProduct("tshirt-birthday-2025", "T-shirt Birthday 2025", 6999, {
-    description:
-      "Koszulka urodzinowa 2025 — wygodna, bawełniana, unisex.",
-    brand: "GiftStore",
-    category: "na-urodziny",
-    stock: 30,
-  });
+  await upsertProduct(
+    "tshirt-birthday-2025",
+    "T-shirt Birthday 2025",
+    6999,
+    {
+      description:
+        "Koszulka urodzinowa 2025 — wygodna, bawełniana, unisex.",
+      brand: "GiftStore",
+      category: "na-urodziny", // slug kategorii
+      stock: 30,
+    }
+  );
 
   console.log("[seedSample] Gotowe ✔");
 }

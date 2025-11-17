@@ -1,3 +1,4 @@
+// api/src/routes/adminProductsMaintenance.ts
 import { Router, type Request, type Response } from "express";
 import path from "path";
 import fs from "fs";
@@ -5,7 +6,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/requireAuth";
 import { requireRole } from "../middleware/roles";
 import { logAdminAction } from "../lib/adminLog";
-import { popularGiftsData } from "../seed/popularGiftsData";
+import productsGiftsData, { type PopularGift } from "@shared/popularGiftsData"; // ✅ upewnij się, że to istnieje
 
 const uploadDir = path.join(process.cwd(), "uploads");
 const router: Router = Router();
@@ -82,7 +83,7 @@ router.post(
     const updated: string[] = [];
     const skipped: string[] = [];
 
-    for (const raw of popularGiftsData) {
+    for (const raw of productsGiftsData) {
       const slug = String(raw.slug || "").trim();
       if (!slug) continue;
 
@@ -204,7 +205,7 @@ router.post(
           if (mode === "overwrite" && overwriteImages && exists.media?.length) {
             for (const m of exists.media) {
               try {
-                await prisma.media.delete({ where: { id: m.id } });
+                await prisma.media.delete({ where: { id: m.id } as any });
               } catch {}
               try {
                 const filePath = path.join(uploadDir, path.basename(m.url));
@@ -258,7 +259,8 @@ router.delete(
   requireRole("ADMIN"),
   async (req: Request, res: Response) => {
     const id = String(req.params.id || "");
-    const force = String(req.query.force || req.query.hard || "") === "true" || req.query.hard === "1";
+    const force =
+      String(req.query.force || req.query.hard || "") === "true" || req.query.hard === "1";
 
     const product = await prisma.product.findUnique({
       where: { id } as any,
@@ -354,7 +356,10 @@ router.delete(
       return res.json({ ok: true, softDeleted: updated.count });
     }
 
-    const products = await prisma.product.findMany({ where, include: { media: true, variants: true } });
+    const products = await prisma.product.findMany({
+      where,
+      include: { media: true, variants: true },
+    });
     for (const p of products) {
       for (const m of p.media) {
         try {
@@ -389,7 +394,9 @@ router.delete(
   async (req: Request, res: Response) => {
     const hard = String(req.query.hard || "") === "1";
     if (hard) {
-      const products = await prisma.product.findMany({ include: { media: true, variants: true } });
+      const products = await prisma.product.findMany({
+        include: { media: true, variants: true },
+      });
       for (const p of products) {
         for (const m of p.media) {
           try {
